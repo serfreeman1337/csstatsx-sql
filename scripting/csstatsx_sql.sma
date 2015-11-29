@@ -648,6 +648,8 @@ public DB_GetPlayerRanks()
 	len += get_score_sql(query[len],charsmax(query) - len)
 	len += formatex(query[len],charsmax(query) - len,") FROM `csstats` as `a` WHERE `id` IN(")
 	
+	new bool:letsgo
+	
 	for(new i,player,bool:y  ; i < pnum ; i++)
 	{
 		player = players[i]
@@ -656,13 +658,17 @@ public DB_GetPlayerRanks()
 		{
 			len += formatex(query[len],charsmax(query) - len,"%s'%d'",y ? "," : "",player_data[player][PLAYER_ID])
 			y = true
+			letsgo = true
 		}
 	}
 	
 	len += formatex(query[len],charsmax(query) - len,")")
 	
-	new data[1] = SQL_UPDATERANK
-	SQL_ThreadQuery(sql,"SQL_Handler",query,data,sizeof data)
+	if(letsgo)
+	{
+		new data[1] = SQL_UPDATERANK
+		SQL_ThreadQuery(sql,"SQL_Handler",query,data,sizeof data)
+	}
 }
 
 /*
