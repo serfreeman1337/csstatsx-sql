@@ -10,7 +10,7 @@
 #include <hamsandwich>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.3 Beta"
+#define VERSION "0.3.1 Beta"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
 #define LASTUPDATE "21, December (12), 2015"
@@ -503,7 +503,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			new diffhits[sizeof player_data[][PLAYER_HITS]]
 			new len,to_save
 			
-			len += formatex(query[len],charsmax(query) - len,"UPDATE `csstats` SET")
+			len += formatex(query[len],charsmax(query) - len,"SET NAMES `utf8`;UPDATE `csstats` SET")
 			
 			// обновляем по разнице с предедущими данными
 			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS] ; i++)
@@ -598,7 +598,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			sql_data[0] = SQL_INSERT
 			
-			formatex(query,charsmax(query),"INSERT INTO `csstats` \
+			formatex(query,charsmax(query),"SET NAMES `utf8`;INSERT INTO `csstats` \
 							(`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`)\
 							VALUES('%s','%s','%s','%d','%d','%d','%d','%d','%d','%d','%s','%d','%d','%d','%d')\
 							",

@@ -27,24 +27,25 @@ SET time_zone = "+00:00";
 --
 
 CREATE TABLE IF NOT EXISTS `csstats` (
-`id` int(11) NOT NULL,
-  `steamid` varchar(30) NOT NULL,
-  `name` varchar(32) NOT NULL,
-  `ip` varchar(16) NOT NULL,
-  `kills` int(11) NOT NULL DEFAULT '0',
-  `deaths` int(11) NOT NULL DEFAULT '0',
-  `hs` int(11) NOT NULL DEFAULT '0',
-  `tks` int(11) NOT NULL DEFAULT '0',
-  `shots` int(11) NOT NULL DEFAULT '0',
-  `hits` int(11) NOT NULL DEFAULT '0',
-  `dmg` int(11) NOT NULL DEFAULT '0',
-  `bombdef` int(11) NOT NULL DEFAULT '0',
-  `bombdefused` int(11) NOT NULL DEFAULT '0',
-  `bombplants` int(11) NOT NULL DEFAULT '0',
-  `bombexplosions` int(11) NOT NULL DEFAULT '0',
-  `hits_xml` tinytext NOT NULL,
-  `first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
+	`id` int(11) NOT NULL AUTO_INCREMENT,
+	`steamid` varchar(30) NOT NULL,
+	`name` varchar(32) NOT NULL,
+	`ip` varchar(16) NOT NULL,
+	`kills` int(11) NOT NULL DEFAULT '0',
+	`deaths` int(11) NOT NULL DEFAULT '0',
+	`hs` int(11) NOT NULL DEFAULT '0',
+	`tks` int(11) NOT NULL DEFAULT '0',
+	`shots` int(11) NOT NULL DEFAULT '0',
+	`hits` int(11) NOT NULL DEFAULT '0',
+	`dmg` int(11) NOT NULL DEFAULT '0',
+	`bombdef` int(11) NOT NULL DEFAULT '0',
+	`bombdefused` int(11) NOT NULL DEFAULT '0',
+	`bombplants` int(11) NOT NULL DEFAULT '0',
+	`bombexplosions` int(11) NOT NULL DEFAULT '0',
+	`hits_xml` tinytext NOT NULL,
+	`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+	PRIMARY KEY (id)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8 AUTO_INCREMENT=1 ;
 
 --
@@ -115,25 +116,6 @@ END
 //
 DELIMITER ;
 
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `csstats`
---
-ALTER TABLE `csstats`
- ADD PRIMARY KEY (`id`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `csstats`
---
-ALTER TABLE `csstats`
-MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
