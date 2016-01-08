@@ -1,5 +1,5 @@
 /*
-*	CSStatsX MySQL			     v. 0.3 Beta
+*	CSStatsX MySQL			     	  v. 0.4
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -10,10 +10,10 @@
 #include <hamsandwich>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.3.1 Beta"
+#define VERSION "0.4"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "21, December (12), 2015"
+#define LASTUPDATE "08, January (01), 2016"
 
 #define MYSQL_HOST	"localhost"
 #define MYSQL_USER	"root"
@@ -38,7 +38,8 @@ enum _:sql_que_type	// тип sql запроса
 	SQL_LOAD,	// загрузка статистики
 	SQL_UPDATE,	// обновление
 	SQL_INSERT,	// внесение новой записи
-	SQL_UPDATERANK	// получение ранков игроков
+	SQL_UPDATERANK,	// получение ранков игроков,
+	SQL_GETSTATS	// потоквый запрос на get_stats
 }
 
 enum _:load_state_type	// состояние получение статистики
@@ -147,10 +148,10 @@ enum _:player_data_struct
 
 enum _:stats_cache_struct	// кеширование для get_stats
 {
-	CACHE_NAME[32],
-	CACHE_STEAMID[30],
 	CACHE_STATS[8],
 	CACHE_HITS[8],
+	CACHE_NAME[32],
+	CACHE_STEAMID[30],
 	bool:CACHE_LAST
 }
 
@@ -158,6 +159,8 @@ enum _:cvar_set
 {
 	CVAR_UPDATESTYLE,
 	CVAR_RANK,
+	CVAR_RANKFORMULA,
+	CVAR_RANKBOTS,
 	CVAR_USEFORWARDS
 }
 
@@ -165,8 +168,6 @@ enum _:cvar_set
 
 new player_data[MAX_PLAYERS + 1][player_data_struct]
 new statsnum
-
-new cnt_fail,cnt_thd,cnt_nthd,cnt_int
 
 new cvar[cvar_set]
 
@@ -246,6 +247,16 @@ public plugin_init()
 	
 	if(!cvar[CVAR_RANK])
 		cvar[CVAR_RANK] = register_cvar("csstats_rank","0")
+		
+	/*
+	* запись статистики ботов
+	*	0			- не записывать
+	*	1			- записывать0
+	*/
+	cvar[CVAR_RANKBOTS] = get_cvar_pointer("csstats_rankbots")
+	
+	if(!cvar[CVAR_RANKBOTS])
+		cvar[CVAR_RANKBOTS] = register_cvar("csstats_rankbots","1")
 	
 	/*
 	* как обновлять статистику игрока в БД
@@ -263,6 +274,14 @@ public plugin_init()
 	*/
 	cvar[CVAR_USEFORWARDS] = register_cvar("csstats_mysql_forwards","0")
 	
+	/*
+	* формула расчета ранга
+	*	0			- убйиства - смерти - тк
+	*	1			- убийства
+	*	2			- убийства + хедшоты
+	*/
+	cvar[CVAR_RANKFORMULA] = register_cvar("csstats_mysql_rankformula","0")
+	
 	register_logevent("logevent_round_end", 2, "1=Round_End") 
 	
 	#if AMXX_VERSION_NUM < 183
@@ -278,7 +297,16 @@ public plugin_init()
 
 public plugin_cfg()
 {
+	// форсируем выполнение exec addons/amxmodx/configs/amxx.cfg
+	server_exec()
+	
 	sql = SQL_MakeDbTuple(MYSQL_HOST,MYSQL_USER,MYSQL_PASS,MYSQL_DB)
+	
+	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
+	
+	#if AMXX_VERSION_NUM >= 183
+	SQL_SetCharset(sql,"utf8")
+	#endif
 	
 	// обновление статистики в БД каждые n сек
 	if(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) > 0)
@@ -370,20 +398,23 @@ public save_test(id)
 	DB_SavePlayerData(id)
 }
 
-public plugin_end()
-{
-	log_amx("--> mysql stats:")
-	log_amx("--> THREADED QUERIES: %d",cnt_thd)
-	log_amx("--> NON-THREADED QUERIES: %d",cnt_nthd)
-	log_amx("--> FAIL QUERIES: %d",cnt_fail)
-	log_amx("--> CONNECTIONS: %d",cnt_int)
-}
-
 /*
 * загрузка статистики игрока из базы данных
 */
 DB_LoadPlayerData(id)
 {
+	// пропускаем HLTV
+	if(is_user_hltv(id))
+	{
+		return false
+	}
+	
+	// пропускаем ботов, если отключена запись статистики ботов
+	if(!get_pcvar_num(cvar[CVAR_RANKBOTS]) && is_user_bot(id))
+	{
+		return false
+	}
+	
 	new name[96],steamid[30],ip[16]
 	
 	// узнаем ник, ид, айпи игрока
@@ -402,9 +433,9 @@ DB_LoadPlayerData(id)
 	player_data[id][PLAYER_LOADSTATE] = LOAD_WAIT
 	
 	len += formatex(query[len],charsmax(query)-len,"SELECT *,(")
-	len += get_score_sql(query[len],charsmax(query)-len)
+	len += DB_QueryBuildScore(query[len],charsmax(query)-len)
 	len += formatex(query[len],charsmax(query)-len,"),(")
-	len += get_statsnum_sql(query[len],charsmax(query)-len)
+	len += DB_QueryBuildStatsnum(query[len],charsmax(query)-len)
 	len += formatex(query[len],charsmax(query)-len,")")
 	
 	// разбираем xml статистик попаданий
@@ -559,7 +590,18 @@ DB_SavePlayerData(id,bool:reload = false)
 				)
 			}
 			
-			len += formatex(query[len],charsmax(query) - len,",`last_join` = CURRENT_TIMESTAMP() WHERE `%s` = '%d'",
+			// обновляем время последнего подключения, ник, ип и steamid
+			len += formatex(query[len],charsmax(query) - len,",\
+				`last_join` = CURRENT_TIMESTAMP(),\
+				`%s` = '%s',\
+				`%s` = '%s',\
+				`%s` = '%s'\
+				WHERE `%s` = '%d'",
+				
+				row_names[ROW_STEAMID],steamid,
+				row_names[ROW_NAME],name,
+				row_names[ROW_IP],ip,
+				
 				row_names[ROW_ID],player_data[id][PLAYER_ID]
 			)
 			
@@ -599,8 +641,8 @@ DB_SavePlayerData(id,bool:reload = false)
 			sql_data[0] = SQL_INSERT
 			
 			formatex(query,charsmax(query),"SET NAMES `utf8`;INSERT INTO `csstats` \
-							(`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`)\
-							VALUES('%s','%s','%s','%d','%d','%d','%d','%d','%d','%d','%s','%d','%d','%d','%d')\
+							(`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`)\
+							VALUES('%s','%s','%s','%d','%d','%d','%d','%d','%d','%d','%s','%d','%d','%d','%d',CURRENT_TIMESTAMP())\
 							",
 							
 					row_names[ROW_STEAMID],
@@ -618,6 +660,7 @@ DB_SavePlayerData(id,bool:reload = false)
 					row_names[ROW_BOMBDEFUSED],
 					row_names[ROW_BOMBPLANTS],
 					row_names[ROW_BOMBEXPLOSIONS],
+					row_names[ROW_LASTJOIN],
 					
 					steamid,name,ip,
 					
@@ -676,7 +719,7 @@ public DB_GetPlayerRanks()
 	
 	// строим SQL запрос
 	len += formatex(query[len],charsmax(query) - len,"SELECT `id`,(")
-	len += get_score_sql(query[len],charsmax(query) - len)
+	len += DB_QueryBuildScore(query[len],charsmax(query) - len)
 	len += formatex(query[len],charsmax(query) - len,") FROM `csstats` as `a` WHERE `id` IN(")
 	
 	new bool:letsgo
@@ -716,6 +759,143 @@ public DB_SaveAll()
 	}
 }
 
+
+/*
+* запрос на просчет ранка
+*/
+DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0)
+{
+	// стандартная формула csstats (убийства-смерти-tk)
+	switch(get_pcvar_num(cvar[CVAR_RANKFORMULA]))
+	{
+		case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills)>=(a.kills)")
+		case 2: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills+hs)>=(a.kills+a.hs)")
+		default: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)")
+	}
+	
+	return 0
+}
+
+/*
+* запрос на общее кол-во записей в БД
+*/ 
+DB_QueryBuildStatsnum(sql_que[] = "",sql_que_len = 0)
+{
+	return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE 1")
+}
+
+/*
+* запрос на выборку статистики по позиции
+*	index - начальная позиция
+*	index_count - кол-во выбираемых записей
+*/
+DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
+{
+	// строим запрос
+	len += formatex(query[len],query_max-len,"SELECT ")
+	
+	// тип authid
+	switch(get_pcvar_num(cvar[CVAR_RANK]))
+	{
+		case 0:
+		{
+			len += formatex(query[len],query_max-len,"`name`,")
+		}
+		case 1:
+		{
+			len += formatex(query[len],query_max-len,"`steamid`,")
+		}
+		case 2:
+		{
+			len += formatex(query[len],query_max-len,"`ip`,")
+		}
+	}
+	
+	// общая статистика (да, я ленивая жопа и специально сделал цикл)
+	for(new i = ROW_NAME ; i <= ROW_DMG ; i++)
+	{
+		len += formatex(query[len],query_max-len,"%s`%s`",
+			i == ROW_NAME ? "" : ",",
+			row_names[i]
+		)
+	}
+	
+	// разбираем xml статистик попаданий
+	for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
+	{
+		len += formatex(query[len],query_max-len,",ExtractValue(`%s`,'//i[%d]')",
+			row_names[ROW_HITSARRAY],i + 1
+		)
+	}
+	
+	// запрос на ранк
+	len += formatex(query[len],query_max-len,",(")
+	len += DB_QueryBuildScore(query[len],query_max-len)
+	len += formatex(query[len],query_max-len,") as `rank`")
+	
+	// запрашиваем следующию запись
+	// если есть, то возврашаем нативом index + 1
+	len += formatex(query[len],query_max-len," FROM `csstats` as `a` ORDER BY `rank` LIMIT %d,%d",
+		index,index_count
+	)
+	
+	return len
+}
+
+/*
+* чтение результата get_stats запроса
+*/
+DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len = 0,stats[8] = 0,hits[8] = 0,&stats_count = 0,index)
+{
+	stats_count = SQL_NumResults(sqlQue)
+	
+	SQL_ReadResult(sqlQue,0,authid,authid_len)
+	SQL_ReadResult(sqlQue,1,name,name_len)
+		
+	// разбор данных (да, мне опять лень и опять тут супер цикл)
+	for(new i = 2; i < sizeof player_data[][PLAYER_STATS] +  sizeof player_data[][PLAYER_HITS] + 2 ; i++)
+	{
+		// обычная статистка
+		if(i - 2 < sizeof player_data[][PLAYER_STATS])
+			stats[i - 2] = SQL_ReadResult(sqlQue,i)
+		else // статистика попаданий
+			hits[i - sizeof player_data[][PLAYER_STATS] - 2] = SQL_ReadResult(sqlQue,i)
+	}
+	
+	// кеширование данных
+	new stats_cache[stats_cache_struct]
+	
+	if(!stats_cache_trie)
+	{
+		stats_cache_trie = TrieCreate()
+	}
+	
+	copy(stats_cache[CACHE_NAME],charsmax(stats_cache[CACHE_NAME]),name)
+	copy(stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]),authid)
+	
+	for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
+	{
+		stats_cache[CACHE_STATS][i] = stats[i]
+	}
+	
+	for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
+	{
+		stats_cache[CACHE_HITS][i] = hits[i]
+	}
+	
+	stats_cache[CACHE_LAST] = SQL_NumResults(sqlQue) <= 1
+	
+	new index_str[10]
+	num_to_str(index,index_str,charsmax(index_str))
+	
+	TrieSetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct)
+	// кешироавние данных
+	
+	SQL_NextRow(sqlQue)
+	
+	return SQL_MoreResults(sqlQue)
+}
+
 /*
 * обновляем кеш для get_stats
 */
@@ -741,8 +921,6 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			log_amx("MySQL connection failed")
 			log_amx("[ %d ] %s",errNum,err)
 			
-			cnt_fail ++
-
 			return PLUGIN_HANDLED
 		}
 		case TQUERY_QUERY_FAILED:  // ошибка SQL запроса
@@ -754,22 +932,15 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			log_amx("[ %d ] %s",errNum,err)
 			log_amx("[ SQL ] %s",lastQue)
 			
-			cnt_fail ++
-			
 			return PLUGIN_HANDLED
 		}
 	}
 	
-	cnt_thd ++
-	
-
 	switch(data[0])
 	{
 		case SQL_LOAD: // загрзука статистики игрока
 		{
 			new id = data[1]
-		
-			log_amx("--> load report: [%d] [%d] [%.2f]",id,is_user_connected(id),get_gametime())
 		
 			if(!is_user_connected(id))
 			{
@@ -806,14 +977,12 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					player_data[id][PLAYER_HITS][i] = SQL_ReadResult(sqlQue,row_ids + 2 + i)
 				}
 				
-				log_amx("--> load ok! %d, rank: %d of %d [%.2f]",player_data[id][PLAYER_ID],player_data[id][PLAYER_RANK],statsnum,get_gametime())
-			}
+				}
 			else // помечаем как нового игрока
 			{
 				player_data[id][PLAYER_LOADSTATE] = LOAD_NEW
 				
 				DB_SavePlayerData(id) // добавляем запись в базу данных
-				log_amx("--> load new %d! [%.2f]",id,get_gametime())
 			}
 		}
 		case SQL_INSERT:	// запись новых данных
@@ -911,26 +1080,34 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			
 			Cache_Stats_Update()
 		}
+		case SQL_GETSTATS: // потоковый get_stats
+		{
+			new id = data[1]
+			
+			if(!is_user_connected(id))
+			{
+				return PLUGIN_HANDLED
+			}
+			
+			new index = data[5]
+			new name[32],authid[30]
+			
+			// кешируем ответ
+			while(DB_ReadGetStats(sqlQue,name,charsmax(name),authid,charsmax(authid),.index = index ++))
+			{
+			}
+			
+			// вызываем хандлер другого плагина
+			if(callfunc_begin_i(data[3],data[2]))
+			{
+				callfunc_push_int(id)
+				callfunc_push_int(data[4])
+				callfunc_end()
+			}
+		}
 	}
 
 	return PLUGIN_HANDLED
-}
-
-/*
-* запрос на просчет ранка
-*/
-get_score_sql(sql_que[] = "",sql_que_len = 0)
-{
-	// стандартная формула csstats (убийства-смерти-tk)
-	return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)")
-}
-
-/*
-* запрос на общее кол-во записей в БД
-*/ 
-get_statsnum_sql(sql_que[] = "",sql_que_len = 0)
-{
-	return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE 1")
 }
 
 /*
@@ -963,6 +1140,7 @@ public plugin_natives()
 	register_native("get_statsnum_sql","native_get_statsnum")
 	register_native("get_user_stats_sql","native_get_user_stats")
 	register_native("get_stats_sql","native_get_stats")
+	register_native("get_stats_sql_thread","native_get_stats_thread")
 }
 
 
@@ -1204,6 +1382,19 @@ public native_get_statsnum(plugin_id,params)
 */
 public native_get_stats(plugin_id,params)
 {
+	if(params < 5)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 5, passed %d",params)
+		
+		return false
+	}
+	else if(params > 5 && params != 7)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 7, passed %d",params)
+		
+		return false
+	}
+	
 	new index = get_param(1)	// индекс в статистике
 	
 	// кеширование
@@ -1217,8 +1408,7 @@ public native_get_stats(plugin_id,params)
 		set_array(3,stats_cache[CACHE_HITS],sizeof stats_cache[CACHE_HITS])
 		set_string(4,stats_cache[CACHE_NAME],get_param(5))
 		
-		// TODO: сделать нормально
-		if(params > 5)
+		if(params == 7)
 		{
 			set_string(6,stats_cache[CACHE_STEAMID],get_param(7))
 		}
@@ -1227,8 +1417,11 @@ public native_get_stats(plugin_id,params)
 	}
 	// кеширование
 	
+	/*
+	* прямой запрос в БД, в случае если нету данных в кеше
+	*/
+	
 	// открываем соединение с БД для получения актуальных данных
-	// TODO: поддержка потоков
 	if(!DB_OpenConnection())
 	{
 		return false	// ошибка открытия соединения
@@ -1243,43 +1436,12 @@ public native_get_stats(plugin_id,params)
 		}
 	}
 	
-	new query[QUERY_LENGTH],len
-	
-	// строим запрос
-	len += formatex(query[len],charsmax(query)-len,"SELECT ")
-	
-	// общая статистика (да, я ленивая жопа и специально сделал цикл)
-	for(new i = ROW_STEAMID ; i <= ROW_DMG ; i++)
-	{
-		len += formatex(query[len],charsmax(query)-len,"%s`%s`",
-			i == ROW_STEAMID ? "" : ",",
-			row_names[i]
-		)
-	}
-	
-	// разбираем xml статистик попаданий
-	for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
-	{
-		len += formatex(query[len],charsmax(query)-len,",ExtractValue(`%s`,'//i[%d]')",
-			row_names[ROW_HITSARRAY],i + 1
-		)
-	}
-	
-	// запрос на ранк
-	len += formatex(query[len],charsmax(query)-len,",(")
-	len += get_score_sql(query[len],charsmax(query)-len)
-	len += formatex(query[len],charsmax(query)-len,") as `rank`")
-	
-	// запрашиваем следующию запись
-	// если есть, то возврашаем нативом index + 1
-	len += formatex(query[len],charsmax(query)-len," FROM `csstats` as `a` ORDER BY `rank` LIMIT %d,2",
-		index
-	)
-	
+	// подготавливаем запрос в БД
+	new query[QUERY_LENGTH]
+	DB_QueryBuildGetstats(query,charsmax(query),.index = index)
 	new Handle:sqlQue = SQL_PrepareQuery(sql_con,query)
 	
-	cnt_nthd ++
-	
+	// ошибка выполнения запроса
 	if(!SQL_Execute(sqlQue))
 	{
 		new errNum,err[256]
@@ -1291,59 +1453,94 @@ public native_get_stats(plugin_id,params)
 		
 		SQL_FreeHandle(sqlQue)
 		
-		cnt_fail ++
-		
 		return 0
 	}
 	
-	if(SQL_NumResults(sqlQue))
+	// читаем результат
+	new name[32],steamid[30],stats[8],hits[8],stats_count
+		
+	DB_ReadGetStats(sqlQue,
+		name,charsmax(name),
+		steamid,charsmax(steamid),
+		stats,
+		hits,
+		stats_count,
+		index
+	)
+	
+	// статистики нет
+	if(!stats_count)
 	{
-		new name[32],steamid[30],stats[8],hits[8]
-		
-		SQL_ReadResult(sqlQue,0,steamid,charsmax(steamid))
-		SQL_ReadResult(sqlQue,1,name,charsmax(name))
-		
-		// разбор данных (да, мне опять лень и опять тут супер цикл)
-		for(new i = 2; i < sizeof player_data[][PLAYER_STATS] +  sizeof player_data[][PLAYER_HITS] + 2 ; i++)
-		{
-			// обычная статистка
-			if(i - 2 < sizeof player_data[][PLAYER_STATS])
-				stats[i - 2] = SQL_ReadResult(sqlQue,i)
-			else // статистика попаданий
-				hits[i - sizeof player_data[][PLAYER_STATS] - 2] = SQL_ReadResult(sqlQue,i)
-		}
-		
-		set_array(2,stats,sizeof player_data[][PLAYER_STATS])
-		set_array(3,hits,sizeof player_data[][PLAYER_HITS])
-		set_string(4,name,get_param(5))
-		
-		// TODO: сделать нормально
-		if(params > 5)
-		{
-			set_string(6,steamid,get_param(7))
-		}
-		
-		// кеширование данных
-		if(!stats_cache_trie)
-		{
-			stats_cache_trie = TrieCreate()
-		}
-		
-		copy(stats_cache[CACHE_NAME],charsmax(stats_cache[CACHE_NAME]),name)
-		copy(stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]),steamid)
-		arraycopy(stats_cache[CACHE_STATS],stats)
-		arraycopy(stats_cache[CACHE_HITS],hits)
-		stats_cache[CACHE_LAST] = SQL_NumResults(sqlQue) <= 1
-		
-		TrieSetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct)
-		// кешироавние данных
-		
-		return SQL_NumResults(sqlQue) > 1 ? index + 1 : 0
+		return false
 	}
 	
 	SQL_FreeHandle(sqlQue)
 	
-	return 0
+	// возвращаем данные натива
+	set_array(2,stats,sizeof player_data[][PLAYER_STATS])
+	set_array(3,hits,sizeof player_data[][PLAYER_HITS])
+	set_string(4,name,get_param(5))
+		
+	if(params == 7)
+	{
+		set_string(6,steamid,get_param(7))
+	}
+	
+	return stats_count ? index + 1 : 0
+}
+
+/*
+* Потоковый запрос на получение статистик по позиции
+*	id - для кого мы запрашиваем
+*	position - позиция
+*	top - кол-во
+*	callback[] - хандлер ответа
+*
+* native get_stats_sql_thread(id,position,top,callback[]);
+*/
+public native_get_stats_thread(plugin_id,params)
+{
+	if(params < 4)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 4, passed %d",params)
+		
+		return false
+	}
+	
+	new id = get_param(1)
+	new position = min(statsnum,get_param(2))
+	new top = get_param(3)
+	
+	new start_index = max((position - top),0)
+	
+	new callback[20]
+	get_string(4,callback,charsmax(callback))
+	
+	new func_id = get_func_id(callback,plugin_id)
+	
+	if(func_id == -1)
+	{
+		log_error(AMX_ERR_NATIVE,"Unable to locate ^"%s^" handler.",callback)
+		
+		return false
+	}
+	
+	new query[QUERY_LENGTH]
+	DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top)
+	
+	
+	new sql_data[6]
+	
+	sql_data[0] = SQL_GETSTATS
+	sql_data[1] = id
+	sql_data[2] = plugin_id
+	sql_data[3] = func_id
+	sql_data[4] = position
+	sql_data[5] = start_index
+	
+	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	
+	return true
 }
 
 /*
@@ -1660,7 +1857,9 @@ public DB_OpenConnection()
 	new errNum,err[256]
 	sql_con = SQL_Connect(sql,errNum,err,charsmax(err))
 	
-	cnt_int ++
+	#if AMXX_VERSION_NUM > 182
+	SQL_SetCharset(sql_con,"utf8")
+	#endif
 	
 	if(errNum)
 	{
@@ -1669,8 +1868,6 @@ public DB_OpenConnection()
 			
 		return false
 	}
-	
-	log_amx("--> sql connection open %.2f",get_gametime())
 	
 	return true
 }
@@ -1681,8 +1878,6 @@ public DB_CloseConnection()
 	{
 		SQL_FreeHandle(sql_con)
 		sql_con = Empty_Handle
-		
-		log_amx("--> sql connection closed %.2f",get_gametime())
 	}
 }
 
@@ -1707,23 +1902,4 @@ mysql_escape_string(dest[],len)
 	replace_all(dest,len,"\x1a","\Z");
 	replace_all(dest,len,"'","\'");
 	replace_all(dest,len,"^"","\^"");
-}
-
-stock arraycopy( any:into[], any:from[], len = sizeof into, bool:ignoretags = false, intotag = tagof into, intosize = sizeof into, intopos = 0, fromtag = tagof from, fromsize = sizeof from, frompos = 0) {
-    if (!ignoretags && intotag != fromtag) {
-        //So we know no elements were copied (we did not remove an element ie. returning -1)
-        return 0;
-    }
-    
-    new i
-    while (i < len) {
-        if (intopos >= intosize || frompos >= fromsize) {
-            break;
-        }
-        
-        into[intopos++] = from[frompos++];
-        i++;
-    }
-    
-    return i;
 }
