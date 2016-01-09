@@ -10,10 +10,10 @@
 #include <hamsandwich>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.4"
+#define VERSION "0.4.1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "08, January (01), 2016"
+#define LASTUPDATE "09, January (01), 2016"
 
 #define MYSQL_HOST	"localhost"
 #define MYSQL_USER	"root"
@@ -707,6 +707,8 @@ DB_SavePlayerData(id,bool:reload = false)
 	return true
 }
 
+#define falos false
+
 /*
 * получение новых позиции в топе игроков
 */
@@ -763,14 +765,29 @@ public DB_SaveAll()
 /*
 * запрос на просчет ранка
 */
-DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0)
+DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
 {
 	// стандартная формула csstats (убийства-смерти-tk)
-	switch(get_pcvar_num(cvar[CVAR_RANKFORMULA]))
+	
+	if(only_rows)
 	{
-		case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills)>=(a.kills)")
-		case 2: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills+hs)>=(a.kills+a.hs)")
-		default: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)")
+		switch(get_pcvar_num(cvar[CVAR_RANKFORMULA]))
+		{
+			case 1: return formatex(sql_que,sql_que_len,"`kills`")
+			case 2: return formatex(sql_que,sql_que_len,"`kills`+`hs`")
+			default: return formatex(sql_que,sql_que_len,"`kills`-`deaths`-`tks`")
+		}
+	}
+	else
+	{
+		switch(get_pcvar_num(cvar[CVAR_RANKFORMULA]))
+		{
+			case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills)>=(a.kills)")
+			case 2: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills+hs)>=(a.kills+a.hs)")
+			default: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM csstats WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)")
+		}
+	
+	
 	}
 	
 	return 0
@@ -830,12 +847,12 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 	
 	// запрос на ранк
 	len += formatex(query[len],query_max-len,",(")
-	len += DB_QueryBuildScore(query[len],query_max-len)
+	len += DB_QueryBuildScore(query[len],query_max-len,true)
 	len += formatex(query[len],query_max-len,") as `rank`")
 	
 	// запрашиваем следующию запись
 	// если есть, то возврашаем нативом index + 1
-	len += formatex(query[len],query_max-len," FROM `csstats` as `a` ORDER BY `rank` LIMIT %d,%d",
+	len += formatex(query[len],query_max-len," FROM `csstats` as `a` ORDER BY `rank` DESC LIMIT %d,%d",
 		index,index_count
 	)
 	
@@ -851,7 +868,7 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 	
 	SQL_ReadResult(sqlQue,0,authid,authid_len)
 	SQL_ReadResult(sqlQue,1,name,name_len)
-		
+	
 	// разбор данных (да, мне опять лень и опять тут супер цикл)
 	for(new i = 2; i < sizeof player_data[][PLAYER_STATS] +  sizeof player_data[][PLAYER_HITS] + 2 ; i++)
 	{
@@ -1572,8 +1589,8 @@ public FMHook_PrecacheEvent(type, name[])
 is_tk(killer,victim)
 {
 	if(killer == victim)
-		return true
-		
+		return true	
+	
 	return false
 }
 
