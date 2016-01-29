@@ -1,5 +1,5 @@
 /*
-*	CSStatsX MySQL			     	  v. 0.4
+*	CSStatsX MySQL			  v. 0.4.2 Dev 3
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -10,10 +10,10 @@
 #include <hamsandwich>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.4.1"
+#define VERSION "0.4.2 Dev 3"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "09, January (01), 2016"
+#define LASTUPDATE "11, January (01), 2016"
 
 #define MYSQL_HOST	"localhost"
 #define MYSQL_USER	"root"
@@ -48,6 +48,7 @@ enum _:load_state_type	// состояние получение статисти
 	LOAD_WAIT,	// ожидание данных
 	LOAD_OK,	// есть данные
 	LOAD_NEW,	// новая запись
+	LOAD_NEWWAIT,	// новая запись, ждем ответа
 	LOAD_UPDATE	// перезагрузить после обновления
 }
 
@@ -174,6 +175,8 @@ new cvar[cvar_set]
 new Trie:stats_cache_trie	// дерево кеша для get_stats // ключ - ранг
 
 /* - CSSTATS CORE - */
+
+ #pragma dynamic 32768
 
 // wstats
 new player_wstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END]
@@ -319,8 +322,7 @@ public plugin_cfg()
 	}
 	
 	if(get_pcvar_num(cvar[CVAR_USEFORWARDS]))
-	{
-		FW_Death = CreateMultiForward("client_death",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL)
+	{	FW_Death =  CreateMultiForward("client_death",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL)
 		FW_Damage = CreateMultiForward("client_damage",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL)
 	}
 }
@@ -695,6 +697,10 @@ DB_SavePlayerData(id,bool:reload = false)
 			if(reload)
 			{
 				player_data[id][PLAYER_LOADSTATE] = LOAD_UPDATE
+			}
+			else
+			{
+				player_data[id][PLAYER_LOADSTATE] = LOAD_NEWWAIT
 			}
 		}
 	}
@@ -1673,7 +1679,7 @@ public HamHook_PlayerKilled(victim,killer)
 		player_astats[victim][killer][STATS_DEATHS] ++
 	}
 	
-	if(FW_Death)
+	if(FW_Death && (0 < killer <= MaxClients))
 		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
 	
 	//client_death(killer,victim)
@@ -1710,6 +1716,9 @@ public HamHook_PlayerDamage(victim, inflictor, attacker, Float:damage, damagebit
 	//
 	// https://pp.vk.me/c630529/v630529638/72ec/1plPtx18WMo.jpg
 	//
+	
+	if(hit_place >= HIT_END)
+		hit_place = HIT_GENERIC
 	
 	player_wstats[attacker][0][STATS_HITS] ++
 	player_wstats[attacker][0][STATS_DMG] += floatround(damage)
@@ -1756,7 +1765,7 @@ public HamHook_PlayerDamage(victim, inflictor, attacker, Float:damage, damagebit
 		ucfirst(player_vwname[attacker][victim])
 	}
 	
-	if(FW_Damage)
+	if(FW_Damage && (0 < attacker <= MaxClients))
 		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,floatround(damage),wpn_id,hit_place,is_tk(attacker,victim))
 	
 	return HAM_IGNORED
