@@ -1,5 +1,5 @@
 /*
-*	CSStatsX MySQL			  v. 0.4.2 Dev 3
+*	CSStatsX MySQL			  	  v. 0.5
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -7,13 +7,12 @@
 #include <sqlx>
 
 #include <fakemeta>
-#include <hamsandwich>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.4.2 Dev 3"
+#define VERSION "0.5 Dev 1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "11, January (01), 2016"
+#define LASTUPDATE "07, February (02), 2016"
 
 #define MYSQL_HOST	"localhost"
 #define MYSQL_USER	"root"
@@ -22,6 +21,7 @@
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
+	#define MAX_NAME_LENGTH 32
 	new MaxClients
 #endif
 
@@ -127,10 +127,8 @@ const QUERY_LENGTH =	1216	// размер переменной sql запрос�
 new const task_rankupdate	=	31337
 new const task_confin		=	21337
 
-new const m_LastHitGroup 		=	75
-
 #define MAX_WEAPONS		CSW_P90 + 1
-#define HIT_END			HIT_RIGHTLEG + 1	
+#define HIT_END			HIT_RIGHTLEG + 1
 
 /* - СТРУКТУРА ДАННЫХ - */
 
@@ -179,54 +177,16 @@ new Trie:stats_cache_trie	// дерево кеша для get_stats // ключ 
  #pragma dynamic 32768
 
 // wstats
-new player_wstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END]
-new player_whits[MAX_PLAYERS + 1][MAX_WEAPONS][HIT_END]
+new player_wstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END + HIT_END]
 
 // wrstats rstats
-new player_wrstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END]
-new player_wrhits[MAX_PLAYERS + 1][MAX_WEAPONS][HIT_END]
+new player_wrstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END + HIT_END]
 
 // vstats
-new player_vstats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][STATS_END]
-new player_vhits[MAX_PLAYERS + 1][MAX_PLAYERS + 1][HIT_END]
-new player_vwname[MAX_PLAYERS + 1][MAX_PLAYERS + 1][32]
+new player_vstats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][STATS_END + HIT_END + MAX_NAME_LENGTH]
 
 // astats
-new player_astats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][STATS_END]
-new player_ahits[MAX_PLAYERS + 1][MAX_PLAYERS + 1][HIT_END]
-new player_awname[MAX_PLAYERS + 1][MAX_PLAYERS + 1][32]
-
-new guns_sc_fwd
-
-new const guns_sc[][] = {
-	"events/awp.sc",
-	"events/g3sg1.sc",
-	"events/ak47.sc",
-	"events/scout.sc",
-	"events/m249.sc",
-	"events/m4a1.sc",
-	"events/sg552.sc",
-	"events/aug.sc",
-	"events/sg550.sc",
-	"events/m3.sc",
-	"events/xm1014.sc",
-	"events/usp.sc",
-	"events/mac10.sc",
-	"events/ump45.sc",
-	"events/fiveseven.sc",
-	"events/p90.sc",
-	"events/deagle.sc",
-	"events/p228.sc",
-	"events/glock18.sc",
-	"events/mp5n.sc",
-	"events/tmp.sc",
-	"events/elite_left.sc",
-	"events/elite_right.sc",
-	"events/galil.sc",
-	"events/famas.sc"
-}
-
-new guns_sc_bitsum
+new player_astats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][STATS_END + HIT_END + MAX_NAME_LENGTH]
 
 new FW_Death
 new FW_Damage
@@ -285,17 +245,16 @@ public plugin_init()
 	*/
 	cvar[CVAR_RANKFORMULA] = register_cvar("csstats_mysql_rankformula","0")
 	
-	register_logevent("logevent_round_end", 2, "1=Round_End") 
-	
 	#if AMXX_VERSION_NUM < 183
 	MaxClients = get_maxplayers()
 	#endif
 	
-	unregister_forward(FM_PrecacheEvent,guns_sc_fwd,true)
+	register_logevent("LogEventHooK_RoundEnd", 2, "1=Round_End") 
+	register_logevent("LogEventHooK_RoundStart", 2, "1=Round_Start") 
 	
-	RegisterHam(Ham_Killed,"player","HamHook_PlayerKilled",true)
-	RegisterHam(Ham_TakeDamage,"player","HamHook_PlayerDamage",true)
-	register_forward(FM_PlaybackEvent, "FMHook_PlaybackEvent")
+	register_event("CurWeapon","EventHook_CurWeapon","b","1=1")
+	register_event("Damage","EventHook_Damage","b","2!0")
+	register_event("DeathMsg","EventHook_DeathMsg","a")
 }
 
 public plugin_cfg()
@@ -333,25 +292,214 @@ public plugin_cfg()
 public client_putinserver(id)
 {
 	arrayset(player_data[id],0,player_data_struct)
-	reset_user_allstats(id)
-	reset_user_wstats(id)
-	
 	DB_LoadPlayerData(id)
 }
 
 /*
 * сохраняем статистику при дисконнекте
 */
+#if AMXX_VERSION_NUM < 183
 public client_disconnect(id)
+#else
+public client_disconnected(id)
+#endif
 {
 	DB_SavePlayerData(id)
+	
+	reset_user_allstats(id)
+	reset_user_wstats(id)
 }
 
-/*
-* сохраняем статистику после смерти
-*/
-public client_death(killer,victim)
+//
+// Регистрация выстрелов
+//
+public EventHook_CurWeapon(player)
 {
+	#define LASTWEAPON 	0	// id посл. оружия
+	#define LASTCLIP	1	// кол-во потронов посл. оружия
+	
+	static event_tmp[MAX_PLAYERS + 1][LASTCLIP + 1]	// помним послед
+	static weapon_id; weapon_id = read_data(2)
+	static clip_ammo; clip_ammo = read_data(3)
+	
+	if(event_tmp[player][LASTWEAPON] != weapon_id) // оружие было изменено, запоминаем новое кол-во патронов
+	{
+		event_tmp[player][LASTWEAPON] = weapon_id
+		event_tmp[player][LASTCLIP] = clip_ammo
+	}
+	else if(event_tmp[player][LASTCLIP] > clip_ammo) // кол-во патронов в магазине уменьшилось, регистрируем выстрел
+	{
+		Stats_SaveShot(player,weapon_id)
+		event_tmp[player][LASTCLIP] = clip_ammo
+	}
+}
+
+//
+// Регистрация попадания
+//
+public EventHook_Damage(player)
+{
+	static damage_take;damage_take = read_data(2)
+	static dmg_inflictor;dmg_inflictor = pev(player,pev_dmg_inflictor)
+	
+	if(pev_valid(dmg_inflictor) != 2)
+	{
+		return PLUGIN_CONTINUE
+	}
+	
+	if(!(0 < dmg_inflictor <= MaxClients))
+	{
+		// TODO: урон с гранаты
+		
+		return PLUGIN_CONTINUE
+	}
+	
+	static weapon_id,last_hit
+	get_user_attacker(player,weapon_id,last_hit)
+	
+	Stats_SaveHit(dmg_inflictor,player,damage_take,weapon_id,last_hit)
+	
+	return PLUGIN_CONTINUE
+}
+
+//
+// Регистрация смертей
+//
+public EventHook_DeathMsg()
+{
+	new killer_id = read_data(1)
+	new victim_id = read_data(2)
+	
+	Stats_SaveKill(killer_id,victim_id)
+}
+
+//
+// Учет выстрелов
+//
+Stats_SaveShot(player,wpn_id)
+{
+	player_wstats[player][0][STATS_SHOTS] ++
+	player_wstats[player][wpn_id][STATS_SHOTS] ++
+	
+	player_wrstats[player][0][STATS_SHOTS] ++
+	player_wrstats[player][wpn_id][STATS_SHOTS] ++
+}
+
+//
+// Учет попадания
+//
+Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
+{
+	player_wstats[attacker][0][STATS_HITS] ++
+	player_wstats[attacker][0][STATS_DMG] += damage
+	player_wstats[attacker][0][hit_place + STATS_END] ++
+	
+	player_wrstats[attacker][0][STATS_HITS] ++
+	player_wrstats[attacker][0][STATS_DMG] += damage
+	player_wrstats[attacker][0][hit_place + STATS_END] ++
+	
+	player_wstats[attacker][wpn_id][STATS_DMG] += damage
+	player_wrstats[attacker][wpn_id][STATS_DMG] += damage
+	player_wstats[attacker][wpn_id][STATS_HITS] ++
+	player_wrstats[attacker][wpn_id][STATS_HITS] ++
+	player_wstats[attacker][wpn_id][hit_place + STATS_END] ++
+	player_wrstats[attacker][wpn_id][hit_place + STATS_END] ++
+	
+	player_vstats[attacker][victim][STATS_HITS] ++
+	player_vstats[attacker][victim][STATS_DMG] += damage
+	player_vstats[attacker][victim][hit_place + STATS_END] ++
+	player_astats[victim][attacker][STATS_HITS] ++
+	player_astats[victim][attacker][STATS_DMG] += damage
+	player_astats[victim][attacker][hit_place + STATS_END] ++
+	player_vstats[attacker][0][STATS_HITS] ++
+	player_vstats[attacker][0][STATS_DMG] += damage
+	player_vstats[attacker][0][hit_place + STATS_END] ++
+	player_astats[victim][0][STATS_HITS] ++
+	player_astats[victim][0][STATS_DMG] += damage
+	player_astats[victim][0][hit_place + STATS_END] ++
+	
+	// оружие, с которого убил для astats, vstats
+	new weapon_name[32]
+	get_weaponname(wpn_id,weapon_name,charsmax(weapon_name))
+	//ucfirst(weapon_name[7])
+		
+	copy(player_vstats[attacker][victim][STATS_END + HIT_END],
+		MAX_NAME_LENGTH - 1,
+		weapon_name[7]
+	)
+	
+	copy(player_astats[victim][attacker][STATS_END + HIT_END],
+		MAX_NAME_LENGTH - 1,
+		weapon_name[7]
+	)
+	
+	if(FW_Damage && (0 < attacker <= MaxClients))
+		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,damage,wpn_id,hit_place,is_tk(attacker,victim))
+}
+
+//
+// Учет смертей
+//
+Stats_SaveKill(killer,victim)
+{
+	static wpn_id,hit_place
+	get_user_attacker(victim,wpn_id,hit_place)
+	
+	if(!is_tk(killer,victim))
+	{
+		player_wstats[killer][0][STATS_KILLS] ++
+		player_wstats[killer][wpn_id][STATS_KILLS] ++
+			
+		player_wrstats[killer][0][STATS_KILLS] ++
+		player_wrstats[killer][wpn_id][STATS_KILLS] ++
+			
+		player_vstats[killer][victim][STATS_KILLS] ++
+		player_astats[victim][killer][STATS_KILLS] ++
+		player_vstats[killer][0][STATS_KILLS] ++
+		player_astats[victim][0][STATS_KILLS] ++
+			
+		if(hit_place == HIT_HEAD)
+		{
+			player_wstats[killer][0][STATS_HS] ++
+			player_wstats[killer][wpn_id][STATS_HS] ++
+				
+			player_wrstats[killer][0][STATS_HS] ++
+			player_wrstats[killer][wpn_id][STATS_HS] ++
+				
+			player_vstats[killer][victim][STATS_HS] ++
+			player_astats[victim][killer][STATS_HS] ++
+			player_vstats[killer][0][STATS_HS] ++
+			player_astats[victim][0][STATS_HS] ++
+		}
+	}
+	else
+	{
+		player_wstats[killer][0][STATS_TK] ++
+		player_wstats[killer][wpn_id][STATS_TK] ++
+		
+		player_wrstats[killer][0][STATS_TK] ++
+		player_wrstats[killer][wpn_id][STATS_TK] ++
+		
+		player_vstats[killer][victim][STATS_TK] ++
+		player_astats[victim][killer][STATS_TK] ++
+		player_vstats[killer][0][STATS_TK] ++
+		player_astats[victim][0][STATS_TK] ++
+	}
+		
+	player_wstats[victim][0][STATS_DEATHS] ++
+	player_wrstats[victim][0][STATS_DEATHS] ++
+	
+	new victim_wpn_id = get_user_weapon(victim)
+	
+	if(victim_wpn_id)
+	{
+		player_wstats[victim][victim_wpn_id][STATS_DEATHS] ++
+		player_wrstats[victim][victim_wpn_id][STATS_DEATHS] ++
+	}
+	
+	if(FW_Death && (0 < killer <= MaxClients))
+		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
+		
 	// обновляем статистику в БД при смерти
 	if(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) == -2)
 	{
@@ -375,11 +523,11 @@ public client_infochanged(id)
 }
 
 /*
-* сохраняем статистику в конце раунда
+* сбрасываем astats,vstats статистику в начале раунда
 */
-public logevent_round_end()
+public LogEventHooK_RoundStart()
 {
-	// сбрасываем wrstats, vstats, astats в конце раунда
+	// сбрасываем wrstats, vstats, astats в начале раунда
 	new players[32],pnum
 	get_players(players,pnum)
 	
@@ -389,15 +537,18 @@ public logevent_round_end()
 		reset_user_wstats(player)
 	}
 
+	
+}
+
+//
+// сохраняем статистику в конце раунда
+//
+public LogEventHooK_RoundEnd()
+{
 	if(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) == -1)
 	{
 		DB_SaveAll()
 	}
-}
-
-public save_test(id)
-{
-	DB_SavePlayerData(id)
 }
 
 /*
@@ -1336,11 +1487,49 @@ public native_get_user_vstats(plugin_id,params)
 		return false
 	}
 	
-	set_array(3,player_vstats[id][victim],STATS_END)
-	set_array(4,player_vhits[id][victim],HIT_END)
-	set_string(5,player_vwname[id][victim],get_param(6))
+	new stats[STATS_END],hits[HIT_END],wname[MAX_NAME_LENGTH]
+	unpack_vstats(id,victim,stats,hits,wname,charsmax(wname))
 	
-	return (player_vstats[id][victim][STATS_KILLS] || player_vstats[id][victim][STATS_HITS])
+	set_array(3,stats,STATS_END)
+	set_array(4,hits,HIT_END)
+	set_string(5,wname,get_param(6))
+	
+	return (stats[STATS_KILLS] || stats[STATS_HITS])
+}
+
+
+unpack_vstats(killer,victim,stats[STATS_END],hits[HIT_END],vname[],vname_len)
+{
+	new i,stats_i
+	
+	for(i = 0; i < STATS_END ; i++,stats_i++)
+	{
+		stats[i]= player_vstats[killer][victim][stats_i]
+	}
+	
+	for(i = 0; i < HIT_END ; i++,stats_i++)
+	{
+		hits[i]= player_vstats[killer][victim][stats_i]
+	}
+	
+	copy(vname,vname_len,player_vstats[killer][victim][stats_i])
+}
+
+unpack_astats(attacker,victim,stats[STATS_END],hits[HIT_END],vname[],vname_len)
+{
+	new i,stats_i
+	
+	for(i = 0; i < STATS_END ; i++,stats_i++)
+	{
+		stats[i]= player_astats[victim][attacker][stats_i]
+	}
+	
+	for(i = 0; i < HIT_END ; i++,stats_i++)
+	{
+		hits[i]= player_astats[victim][attacker][stats_i]
+	}
+	
+	copy(vname,vname_len,player_astats[victim][attacker][stats_i])
 }
 
 /*
@@ -1367,11 +1556,14 @@ public native_get_user_astats(plugin_id,params)
 		return false
 	}
 	
-	set_array(3,player_astats[id][attacker],STATS_END)
-	set_array(4,player_ahits[id][attacker],HIT_END)
-	set_string(5,player_awname[id][attacker],get_param(6))
+	new stats[STATS_END],hits[HIT_END],wname[MAX_NAME_LENGTH]
+	unpack_astats(attacker,id,stats,hits,wname,charsmax(wname))
 	
-	return (player_astats[id][attacker][STATS_KILLS] || player_astats[id][attacker][STATS_HITS])
+	set_array(3,stats,STATS_END)
+	set_array(4,hits,HIT_END)
+	set_string(5,wname,get_param(6))
+	
+	return (stats[STATS_KILLS] || stats[STATS_HITS])
 }
 
 public native_reset_user_wstats()
@@ -1572,203 +1764,12 @@ public native_get_stats_thread(plugin_id,params)
 *
 */
 
-public plugin_precache()
-{
-	guns_sc_fwd = register_forward(FM_PrecacheEvent, "FMHook_PrecacheEvent",true)
-}
-
-public FMHook_PrecacheEvent(type, name[])
-{
-	for (new i; i < sizeof guns_sc; i++)
-	{
-		if(strcmp(guns_sc[i],name) == 0)
-		{
-			guns_sc_bitsum |= (1 << get_orig_retval())
-			
-			return FMRES_HANDLED
-		}
-	}
-		
-	return FMRES_IGNORED
-}
-
 is_tk(killer,victim)
 {
 	if(killer == victim)
 		return true	
 	
 	return false
-}
-
-/*
-* Считаем убийства, смерти, хедшоты и тимфраги
-*/
-public HamHook_PlayerKilled(victim,killer)
-{
-	if(victim <= 0 || victim > MaxClients)
-	{
-		return HAM_IGNORED
-	}
-	
-	new wpn_id = 0
-	new hit_place = 0
-	
-	if(0 < killer <= MaxClients && (killer != victim))
-	{
-		new inflictor = pev(victim, pev_dmg_inflictor)
-		
-		if(killer == inflictor) // Вычисляем ID оружия
-		{
-			wpn_id = get_user_weapon(killer)
-		}
-		else
-		{
-			if(inflictor < MaxClients)
-				return HAM_IGNORED
-		}
-		
-		// Узнаем место попадания
-		hit_place = get_pdata_int(victim, m_LastHitGroup)
-		
-		if(!is_tk(killer,victim))
-		{
-			player_wstats[killer][0][STATS_KILLS] ++
-			player_wstats[killer][wpn_id][STATS_KILLS] ++
-			
-			player_wrstats[killer][0][STATS_KILLS] ++
-			player_wrstats[killer][wpn_id][STATS_KILLS] ++
-			
-			player_vstats[killer][victim][STATS_KILLS] ++
-			
-			if(hit_place == HIT_HEAD)
-			{
-				player_wstats[killer][0][STATS_HS] ++
-				player_wstats[killer][wpn_id][STATS_HS] ++
-				
-				player_wrstats[killer][0][STATS_HS] ++
-				player_wrstats[killer][wpn_id][STATS_HS] ++
-				
-				player_vstats[killer][victim][STATS_HS] ++
-			}
-		}
-		else
-		{
-			player_wstats[killer][0][STATS_TK] ++
-			player_wstats[killer][wpn_id][STATS_TK] ++
-			
-			player_wrstats[killer][0][STATS_TK] ++
-			player_wrstats[killer][wpn_id][STATS_TK] ++
-			
-			player_vstats[killer][victim][STATS_TK] ++
-		}
-	}
-	
-	player_wstats[victim][0][STATS_DEATHS] ++
-	player_wrstats[victim][0][STATS_DEATHS] ++
-	
-	new victim_wpn_id = get_user_weapon(victim)
-	
-	if(victim_wpn_id)
-	{
-		player_wstats[victim][victim_wpn_id][STATS_DEATHS] ++
-		player_wrstats[victim][victim_wpn_id][STATS_DEATHS] ++
-	}
-	
-	if(wpn_id)
-	{
-		player_astats[victim][killer][STATS_DEATHS] ++
-	}
-	
-	if(FW_Death && (0 < killer <= MaxClients))
-		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
-	
-	//client_death(killer,victim)
-	
-	return HAM_IGNORED
-}
-
-/*
-* Считаем попадания и урон
-*/
-public HamHook_PlayerDamage(victim, inflictor, attacker, Float:damage, damagebits)
-{
-	if(victim <= 0 || victim > MaxClients)
-	{
-		return HAM_IGNORED
-	}
-	
-	if(!(0 < attacker <= MaxClients) || (victim == attacker))
-	{
-		return HAM_IGNORED
-	}
-	
-	new wpn_id, hit_place = get_pdata_int(victim, m_LastHitGroup)
-	
-	if(inflictor == attacker)
-	{
-		wpn_id = get_user_weapon(attacker)
-	}
-	else
-	{
-		
-	}
-	
-	//
-	// https://pp.vk.me/c630529/v630529638/72ec/1plPtx18WMo.jpg
-	//
-	
-	if(hit_place >= HIT_END)
-		hit_place = HIT_GENERIC
-	
-	player_wstats[attacker][0][STATS_HITS] ++
-	player_wstats[attacker][0][STATS_DMG] += floatround(damage)
-	player_whits[attacker][0][hit_place] ++
-	
-	player_wrstats[attacker][0][STATS_HITS] ++
-	player_wrstats[attacker][0][STATS_DMG] += floatround(damage)
-	player_wrhits[attacker][0][hit_place] ++
-	
-	player_vstats[attacker][victim][STATS_HITS] ++
-	player_vstats[attacker][victim][STATS_DMG] += floatround(damage)
-	player_vhits[attacker][victim][hit_place] ++
-	
-	player_astats[victim][attacker][STATS_HITS] ++
-	player_astats[victim][attacker][STATS_DMG] += floatround(damage)
-	player_ahits[victim][attacker][hit_place] ++
-	
-	if(wpn_id)
-	{
-		player_wstats[attacker][wpn_id][STATS_DMG] += floatround(damage)
-		player_wrstats[attacker][wpn_id][STATS_DMG] += floatround(damage)
-		player_wstats[attacker][wpn_id][STATS_HITS] ++
-		player_wrstats[attacker][wpn_id][STATS_HITS] ++
-		player_whits[attacker][wpn_id][hit_place] ++
-		player_wrhits[attacker][wpn_id][hit_place] ++
-		
-		// оружие, с которого убил для astats, vstats
-		new weapon_name[32]
-		
-		get_weaponname(wpn_id,weapon_name,charsmax(weapon_name))
-		
-		copy(player_awname[victim][attacker],
-			charsmax(player_awname[][]),
-			weapon_name[8]
-		)
-		
-		ucfirst(player_awname[victim][attacker])
-		
-		copy(player_vwname[attacker][victim],
-			charsmax(player_awname[][]),
-			weapon_name[8]
-		)
-		
-		ucfirst(player_vwname[attacker][victim])
-	}
-	
-	if(FW_Damage && (0 < attacker <= MaxClients))
-		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,floatround(damage),wpn_id,hit_place,is_tk(attacker,victim))
-	
-	return HAM_IGNORED
 }
 
 get_user_wstats(index, wpnindex, stats[8], bh[8])
@@ -1778,7 +1779,7 @@ get_user_wstats(index, wpnindex, stats[8], bh[8])
 		stats[i] = player_wstats[index][wpnindex][i]
 	}
 	
-	#define krisa[%1] player_whits[index][wpnindex][%1]
+	#define krisa[%1] player_wstats[index][wpnindex][STATS_END + %1]
 	
 	for(new i ; i < HIT_END ; i++)
 	{
@@ -1795,7 +1796,7 @@ get_user_wrstats(index, wpnindex, stats[8], bh[8])
 	
 	for(new i ; i < HIT_END ; i++)
 	{
-		bh[i] = player_wrhits[index][wpnindex][i]
+		bh[i] = player_wrstats[index][wpnindex][STATS_END + i]
 	}
 }
 
@@ -1808,7 +1809,7 @@ get_user_rstats(index, stats[8], bh[8])
 	
 	for(new i ; i < HIT_END ; i++)
 	{
-		bh[i] = player_wrhits[index][0][i]
+		bh[i] = player_wrstats[index][0][STATS_END + i]
 	}
 }
 
@@ -1826,17 +1827,14 @@ reset_user_wstats(index)
 {
 	for(new i ; i < MAX_WEAPONS ; i++)
 	{
-		arrayset(player_wrstats[index][i],0,STATS_END)
-		arrayset(player_wrhits[index][i],0,HIT_END)
+		arrayset(player_wrstats[index][i],0,sizeof player_wrstats[][])
 	}
 	
 	for(new i ; i < MAX_PLAYERS + 1 ;i++)
 	{
-		arrayset(player_vstats[index][i],0,MAX_PLAYERS + 1)
-		arrayset(player_vhits[index][i],0,MAX_PLAYERS + 1)
-		
-		arrayset(player_astats[index][i],0,MAX_PLAYERS + 1)
-		arrayset(player_ahits[index][i],0,MAX_PLAYERS + 1)
+		arrayset(player_vstats[index][i],0,sizeof player_vstats[][])
+		arrayset(player_vstats[i][index],0,sizeof player_vstats[][])
+		arrayset(player_astats[index][i],0,sizeof player_astats[][])
 	}
 	
 	return true
@@ -1846,31 +1844,10 @@ reset_user_allstats(index)
 {
 	for(new i ; i < MAX_WEAPONS ; i++)
 	{
-		arrayset(player_wstats[index][i],0,STATS_END)
-		arrayset(player_whits[index][i],0,HIT_END)
+		arrayset(player_wstats[index][i],0,sizeof player_wstats[][])
 	}
 	
 	return true
-}
-
-/*
-* для учета выстрелов
-*/
-public FMHook_PlaybackEvent(flags, invoker, eventid) {
-	if (!(guns_sc_bitsum & (1 << eventid)) || !(1 <= invoker <= MaxClients))
-		return FMRES_IGNORED
-
-	#define get_meteor_sunstrike(%1) get_user_weapon(%1)
-		
-	new wpn_id = get_meteor_sunstrike(invoker)
-	
-	player_wstats[invoker][0][STATS_SHOTS] ++
-	player_wstats[invoker][wpn_id][STATS_SHOTS] ++
-	
-	player_wrstats[invoker][0][STATS_SHOTS] ++
-	player_wrstats[invoker][wpn_id][STATS_SHOTS] ++
-
-	return FMRES_HANDLED
 }
 
 public DB_OpenConnection()
