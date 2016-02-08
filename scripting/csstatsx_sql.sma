@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5 Dev 1"
+#define VERSION "0.5 Dev 2"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "07, February (02), 2016"
+#define LASTUPDATE "08, February (02), 2016"
 
 #define MYSQL_HOST	"localhost"
 #define MYSQL_USER	"root"
@@ -70,6 +70,7 @@ enum _:row_ids		// столбцы таблицы
 	ROW_BOMBPLANTS,
 	ROW_BOMBEXPLOSIONS,
 	ROW_HITSARRAY,
+	ROW_ONLINETIME,
 	ROW_FIRSTJOIN,
 	ROW_LASTJOIN
 }
@@ -92,6 +93,7 @@ new const row_names[row_ids][] = // имена столбцов
 	"bombplants",
 	"bombexplosions",
 	"hits_xml",
+	"connection_time",
 	"first_join",
 	"last_join"
 }
@@ -123,6 +125,7 @@ const QUERY_LENGTH =	1216	// размер переменной sql запрос�
 #define STATS2_DEFOK	1
 #define STATS2_PLAAT	2
 #define STATS2_PLAOK	3
+#define STATS2_END	4
 
 new const task_rankupdate	=	31337
 new const task_confin		=	21337
@@ -137,17 +140,22 @@ enum _:player_data_struct
 	PLAYER_ID,		// ид игрока в базе данных
 	PLAYER_LOADSTATE,	// состояние загрузки статистики игрока
 	PLAYER_RANK,		// ранк игрока
-	PLAYER_STATS[8],	// статистика игрока
-	PLAYER_STATSLAST[8],	// разница в статистики
-	PLAYER_HITS[8],		// статистика попаданий
-	PLAYER_HITSLAST[8],	// разница в статистике попаданий
+	PLAYER_STATS[STATS_END],	// статистика игрока
+	PLAYER_STATSLAST[STATS_END],	// разница в статистики
+	PLAYER_HITS[HIT_END],		// статистика попаданий
+	PLAYER_HITSLAST[HIT_END],	// разница в статистике попаданий
 	PLAYER_STATS2[4],	// статистика cstrike
-	PLAYER_STATS2LAST[4]	// разница
+	PLAYER_STATS2LAST[4],	// разница
+	PLAYER_ONLINEDIFF,
+	PLAYER_ONLINE,
+	PLAYER_ONLINELAST
+	
 }
 
 enum _:stats_cache_struct	// кеширование для get_stats
 {
 	CACHE_STATS[8],
+	CACHE_STATS2[8],
 	CACHE_HITS[8],
 	CACHE_NAME[32],
 	CACHE_STEAMID[30],
@@ -179,6 +187,9 @@ new Trie:stats_cache_trie	// дерево кеша для get_stats // ключ 
 // wstats
 new player_wstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END + HIT_END]
 
+// wstats2
+new player_wstats2[MAX_PLAYERS + 1][STATS2_END]
+
 // wrstats rstats
 new player_wrstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END + HIT_END]
 
@@ -190,10 +201,18 @@ new player_astats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][STATS_END + HIT_END + MAX_NA
 
 new FW_Death
 new FW_Damage
+new FW_BPlanting
+new FW_BPlanted
+new FW_BExplode
+new FW_BDefusing
+new FW_BDefused
 
 new dummy_ret
 
 // осталось монитор прихуярить
+
+new g_planter
+new g_defuser
 
 public plugin_init()
 {
@@ -255,6 +274,9 @@ public plugin_init()
 	register_event("CurWeapon","EventHook_CurWeapon","b","1=1")
 	register_event("Damage","EventHook_Damage","b","2!0")
 	register_event("DeathMsg","EventHook_DeathMsg","a")
+	register_event("BarTime","EventHook_BarTime","be")
+	register_event("SendAudio","EventHook_SendAudio","a")
+	register_event("TextMsg","EventHook_TextMsg","a")
 }
 
 public plugin_cfg()
@@ -283,6 +305,11 @@ public plugin_cfg()
 	if(get_pcvar_num(cvar[CVAR_USEFORWARDS]))
 	{	FW_Death =  CreateMultiForward("client_death",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL)
 		FW_Damage = CreateMultiForward("client_damage",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL,FP_CELL)
+		FW_BPlanting = CreateMultiForward("bomb_planting",ET_IGNORE,FP_CELL)
+		FW_BPlanted = CreateMultiForward("bomb_planted",ET_IGNORE,FP_CELL)
+		FW_BExplode = CreateMultiForward("bomb_explode",ET_IGNORE,FP_CELL,FP_CELL)
+		FW_BDefusing = CreateMultiForward("bomb_defusing",ET_IGNORE,FP_CELL)
+		FW_BDefused = CreateMultiForward("bomb_defused",ET_IGNORE,FP_CELL)
 	}
 }
 
@@ -363,7 +390,7 @@ public EventHook_Damage(player)
 }
 
 //
-// Регистрация смертей
+// Регистрация убийств
 //
 public EventHook_DeathMsg()
 {
@@ -371,6 +398,71 @@ public EventHook_DeathMsg()
 	new victim_id = read_data(2)
 	
 	Stats_SaveKill(killer_id,victim_id)
+}
+
+//
+// Регистрация установки и дефьюза бомбы
+//
+public EventHook_BarTime(player)
+{
+	new duration = read_data(1)
+	
+	if(!duration)
+	{
+		return PLUGIN_CONTINUE
+	}
+	
+	if(duration == 3)
+	{
+		g_planter = player
+		g_defuser = 0
+		
+		if(FW_BPlanting)
+			ExecuteForward(FW_BPlanting,dummy_ret,player)
+	}
+	else
+	{
+		g_defuser = player
+		
+		Stats_SaveBDefusing(player)
+	}
+	
+	return PLUGIN_CONTINUE
+}
+
+public EventHook_SendAudio(player)
+{
+	new audio_code[16]
+	read_data(2,audio_code,charsmax(audio_code))
+	
+	if (!player && audio_code[7] == 'B') 
+	{
+		if (audio_code[11]=='P' && g_planter)
+		{
+			Stats_SaveBPlanted(g_planter)
+		}
+		else if (audio_code[11] =='D' && g_defuser)
+		{
+			Stats_SaveBDefused(g_defuser)
+		}
+	}
+}
+
+public EventHook_TextMsg(player)
+{
+	new message[16]
+	read_data(2,message,charsmax(message))
+	
+	if (!player)
+	{
+		if (message[1]=='T' && message[8] == 'B' && g_planter)
+		{
+			Stats_SaveBExplode(g_planter)
+			
+			g_planter = 0
+			g_defuser = 0
+		}
+	}
 }
 
 //
@@ -433,7 +525,7 @@ Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 		weapon_name[7]
 	)
 	
-	if(FW_Damage && (0 < attacker <= MaxClients))
+	if(FW_Damage)
 		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,damage,wpn_id,hit_place,is_tk(attacker,victim))
 }
 
@@ -497,7 +589,7 @@ Stats_SaveKill(killer,victim)
 		player_wrstats[victim][victim_wpn_id][STATS_DEATHS] ++
 	}
 	
-	if(FW_Death && (0 < killer <= MaxClients))
+	if(FW_Death)
 		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
 		
 	// обновляем статистику в БД при смерти
@@ -505,6 +597,41 @@ Stats_SaveKill(killer,victim)
 	{
 		DB_SavePlayerData(victim)
 	}
+}
+
+//
+// Учет статистики по бомба
+//
+Stats_SaveBDefusing(id)
+{
+	player_wstats2[id][STATS2_DEFAT] ++
+	
+	if(FW_BDefusing)
+		ExecuteForward(FW_BDefusing,dummy_ret,id)
+}
+
+Stats_SaveBDefused(id)
+{
+	player_wstats2[id][STATS2_DEFOK] ++
+	
+	if(FW_BDefused)
+		ExecuteForward(FW_BDefused,dummy_ret,id)
+}
+
+Stats_SaveBPlanted(id)
+{
+	player_wstats2[id][STATS2_PLAAT] ++
+	
+	if(FW_BPlanted)
+		ExecuteForward(FW_BPlanted,dummy_ret,id)
+}
+
+Stats_SaveBExplode(id)
+{
+	player_wstats2[id][STATS2_PLAOK] ++
+	
+	if(FW_BExplode)
+		ExecuteForward(FW_BExplode,dummy_ret,id,g_defuser)
 }
 
 /*
@@ -647,7 +774,8 @@ DB_SavePlayerData(id,bool:reload = false)
 	
 	new sql_data[2 + 					// 2
 		sizeof player_data[][PLAYER_STATS] + // 8
-		sizeof player_data[][PLAYER_HITS] // 8
+		sizeof player_data[][PLAYER_HITS] + // 8
+		sizeof player_data[][PLAYER_STATS2] // 4
 	]
 	
 	sql_data[1] = id
@@ -714,7 +842,7 @@ DB_SavePlayerData(id,bool:reload = false)
 				diffstats2[i] = stats2[i] - player_data[id][PLAYER_STATS2LAST][i] // узнаем разницу
 				player_data[id][PLAYER_STATS2LAST][i] = stats2[i]
 				
-				if(diffstats[i])
+				if(diffstats2[i])
 				{
 					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
 						!to_save ? " " : ",",
@@ -727,7 +855,27 @@ DB_SavePlayerData(id,bool:reload = false)
 				}
 			}
 			
-			if(to_save)
+			
+			// 
+			player_data[id][PLAYER_ONLINE] += get_user_time(id) - player_data[id][PLAYER_ONLINEDIFF]
+			player_data[id][PLAYER_ONLINEDIFF] = get_user_time(id)
+			
+			new diffonline = player_data[id][PLAYER_ONLINE]- player_data[id][PLAYER_ONLINELAST]
+			player_data[id][PLAYER_ONLINELAST] = player_data[id][PLAYER_ONLINE]
+			
+			if(diffonline)
+			{
+				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+					!to_save ? " " : ",",
+					row_names[ROW_ONLINETIME],
+					row_names[ROW_ONLINETIME],
+					diffonline
+				)
+					
+				to_save ++
+			}
+			
+			if(stats[STATS_HITS])
 			{
 				// передаем хмл с разницей, которую обработает триггер на стороне хмл
 				for(i = 0,xml_len = 0 ; i < sizeof player_data[][PLAYER_HITS] ; i++)
@@ -778,7 +926,13 @@ DB_SavePlayerData(id,bool:reload = false)
 			// hits
 			for(i = 0 ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 			{
-				sql_data[i + 2 + sizeof player_data[][PLAYER_STATS]] = diffhits[i]
+				sql_data[2 + i + sizeof player_data[][PLAYER_STATS]] = diffhits[i]
+			}
+			
+			// stats2
+			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
+			{
+				sql_data[2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]] = diffstats[i]
 			}
 			
 			
@@ -842,7 +996,13 @@ DB_SavePlayerData(id,bool:reload = false)
 			// hits
 			for(i = 0 ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 			{
-				sql_data[i + 2 + sizeof player_data[][PLAYER_STATS]] = hits[i]
+				sql_data[2 + i + sizeof player_data[][PLAYER_STATS]] = hits[i]
+			}
+			
+			// stats2
+			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
+			{
+				sql_data[2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]] = stats2[i]
 			}
 			
 			if(reload)
@@ -985,8 +1145,10 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 		}
 	}
 	
+	new i
+	
 	// общая статистика (да, я ленивая жопа и специально сделал цикл)
-	for(new i = ROW_NAME ; i <= ROW_DMG ; i++)
+	for(i = ROW_NAME ; i <= ROW_DMG ; i++)
 	{
 		len += formatex(query[len],query_max-len,"%s`%s`",
 			i == ROW_NAME ? "" : ",",
@@ -995,10 +1157,19 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 	}
 	
 	// разбираем xml статистик попаданий
-	for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
+	for(i = 0; i < sizeof player_data[][PLAYER_HITS] ; i++)
 	{
 		len += formatex(query[len],query_max-len,",ExtractValue(`%s`,'//i[%d]')",
 			row_names[ROW_HITSARRAY],i + 1
+		)
+	}
+	
+	// общая статистика (да, я ленивая жопа и специально сделал цикл)
+	for(i = ROW_BOMBDEF ; i <= ROW_BOMBEXPLOSIONS ; i++)
+	{
+		len += formatex(query[len],query_max-len,"%s`%s`",
+			i == ROW_BOMBDEF ? "" : ",",
+			row_names[i]
 		)
 	}
 	
@@ -1019,21 +1190,31 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 /*
 * чтение результата get_stats запроса
 */
-DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len = 0,stats[8] = 0,hits[8] = 0,&stats_count = 0,index)
+DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len = 0,stats[8] = 0,hits[8] = 0,stats2[4] = 0,&stats_count = 0,index)
 {
 	stats_count = SQL_NumResults(sqlQue)
 	
 	SQL_ReadResult(sqlQue,0,authid,authid_len)
 	SQL_ReadResult(sqlQue,1,name,name_len)
 	
+	new i
+	
 	// разбор данных (да, мне опять лень и опять тут супер цикл)
-	for(new i = 2; i < sizeof player_data[][PLAYER_STATS] +  sizeof player_data[][PLAYER_HITS] + 2 ; i++)
+	for(i = 2; i < sizeof player_data[][PLAYER_STATS] +  sizeof player_data[][PLAYER_HITS] + sizeof player_data[][PLAYER_STATS2] + 2 ; i++)
 	{
 		// обычная статистка
 		if(i - 2 < sizeof player_data[][PLAYER_STATS])
+		{
 			stats[i - 2] = SQL_ReadResult(sqlQue,i)
-		else // статистика попаданий
+		}
+		else if(i - 2 < sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]) // статистика попаданий
+		{
 			hits[i - sizeof player_data[][PLAYER_STATS] - 2] = SQL_ReadResult(sqlQue,i)
+		}
+		else // статистика по бомбе
+		{
+			stats2[i - sizeof player_data[][PLAYER_STATS] - sizeof player_data[][PLAYER_HITS] - 2] = SQL_ReadResult(sqlQue,i)
+		}
 	}
 	
 	// кеширование данных
@@ -1047,14 +1228,14 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 	copy(stats_cache[CACHE_NAME],charsmax(stats_cache[CACHE_NAME]),name)
 	copy(stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]),authid)
 	
-	for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
+	for(i = 0; i < sizeof player_data[][PLAYER_STATS] ; i++)
 	{
 		stats_cache[CACHE_STATS][i] = stats[i]
 	}
 	
-	for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
+	for(i = 0; i < sizeof player_data[][PLAYER_STATS2] ; i++)
 	{
-		stats_cache[CACHE_HITS][i] = hits[i]
+		stats_cache[CACHE_STATS2][i] = stats2[i]
 	}
 	
 	stats_cache[CACHE_LAST] = SQL_NumResults(sqlQue) <= 1
@@ -1141,6 +1322,9 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				player_data[id][PLAYER_STATS2][STATS2_PLAAT] = SQL_ReadResult(sqlQue,ROW_BOMBPLANTS)
 				player_data[id][PLAYER_STATS2][STATS2_PLAOK] = SQL_ReadResult(sqlQue,ROW_BOMBEXPLOSIONS)
 				
+				// время онлайн
+				player_data[id][PLAYER_ONLINE] = player_data[id][PLAYER_ONLINELAST] = SQL_ReadResult(sqlQue,ROW_ONLINETIME)
+				
 				// доп. запросы
 				player_data[id][PLAYER_RANK] = SQL_ReadResult(sqlQue,row_ids)	// ранк игрока
 				statsnum = SQL_ReadResult(sqlQue,row_ids + 1)			// общее кол-во игроков в БД
@@ -1191,6 +1375,14 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					player_data[id][PLAYER_HITS][i] = data[2 + i + sizeof player_data[][PLAYER_STATS]]
 				}
 				
+				// пииздец
+				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
+				{
+					player_data[id][PLAYER_STATS2][i] = data[
+						2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]
+					]
+				}
+				
 				// обновляем счетчик общего кол-ва записей
 				statsnum++
 			}
@@ -1218,6 +1410,14 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 				{
 					player_data[id][PLAYER_HITS][i] += data[2 + i + sizeof player_data[][PLAYER_STATS]]
+				}
+				
+				// пииздец
+				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
+				{
+					player_data[id][PLAYER_STATS2][i] += data[
+						2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]
+					]
 				}
 				
 				if(player_data[id][PLAYER_LOADSTATE] == LOAD_UPDATE)
@@ -1532,6 +1732,20 @@ unpack_astats(attacker,victim,stats[STATS_END],hits[HIT_END],vname[],vname_len)
 	copy(vname,vname_len,player_astats[victim][attacker][stats_i])
 }
 
+public plugin_precache()
+{
+	new amxx_version[10]
+	get_amxx_verstring(amxx_version,charsmax(amxx_version))
+	    
+	if(contain(amxx_version,"1.8.1") != -1)
+	{
+		log_amx("idite nahooy")
+		
+		server_cmd("quit")
+		server_exec()
+	}
+}
+
 /*
 * Статистика по врагам
 *
@@ -1672,13 +1886,14 @@ public native_get_stats(plugin_id,params)
 	}
 	
 	// читаем результат
-	new name[32],steamid[30],stats[8],hits[8],stats_count
+	new name[32],steamid[30],stats[8],hits[8],stats2[4],stats_count
 		
 	DB_ReadGetStats(sqlQue,
 		name,charsmax(name),
 		steamid,charsmax(steamid),
 		stats,
 		hits,
+		stats2,
 		stats_count,
 		index
 	)
@@ -1815,12 +2030,12 @@ get_user_rstats(index, stats[8], bh[8])
 
 get_user_stats2(index, stats[4])
 {
-	// warning fix serf style 8)
-	if(index && stats[0])
+	for(new i ; i < STATS2_END ; i++)
 	{
+		stats[i] = player_wstats2[index][i]
 	}
 	
-	return 0
+	return true
 }
 
 reset_user_wstats(index)
@@ -1846,6 +2061,8 @@ reset_user_allstats(index)
 	{
 		arrayset(player_wstats[index][i],0,sizeof player_wstats[][])
 	}
+	
+	arrayset(player_wstats2[index],0,sizeof player_wstats2[])
 	
 	return true
 }
@@ -1886,7 +2103,18 @@ public DB_CloseConnection()
 
 public native_get_user_stats2(plugin_id,params)
 {
-	return 0
+	new id = get_param(1)
+	
+	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
+	{
+		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
+		
+		return false
+	}
+	
+	set_array(2,player_data[id][PLAYER_STATS2],sizeof player_data[][PLAYER_STATS2])
+	
+	return true
 }
 
 public native_get_stats2(plugin_id,params)
