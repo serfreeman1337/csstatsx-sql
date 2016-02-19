@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5 Dev 2"
+#define VERSION "0.5 Dev 3"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "08, February (02), 2016"
+#define LASTUPDATE "19, February (02), 2016"
 
 #define MYSQL_HOST	"localhost"
 #define MYSQL_USER	"root"
@@ -130,7 +130,8 @@ const QUERY_LENGTH =	1216	// размер переменной sql запрос�
 new const task_rankupdate	=	31337
 new const task_confin		=	21337
 
-#define MAX_WEAPONS		CSW_P90 + 1
+#define MAX_CWEAPONS		6
+#define MAX_WEAPONS		CSW_P90 + 1 + MAX_CWEAPONS
 #define HIT_END			HIT_RIGHTLEG + 1
 
 /* - СТРУКТУРА ДАННЫХ - */
@@ -206,6 +207,7 @@ new FW_BPlanted
 new FW_BExplode
 new FW_BDefusing
 new FW_BDefused
+new FW_GThrow
 
 new dummy_ret
 
@@ -213,6 +215,19 @@ new dummy_ret
 
 new g_planter
 new g_defuser
+
+#define WEAPON_INFO_SIZE		1 + (MAX_NAME_LENGTH * 2)
+
+new Array:weapons_data			// массив с инфой по оружию
+new Trie:log_ids_trie			// дерево для быстрого определения id оружия по лог-коду
+
+// макрос для помощи реагистрации инфы по оружию
+#define REG_INFO(%0,%1,%2)\
+	weapon_info[0] = %0;\
+	copy(weapon_info[1],MAX_NAME_LENGTH,%1);\
+	copy(weapon_info[MAX_NAME_LENGTH ],MAX_NAME_LENGTH,%2);\
+	ArrayPushArray(weapons_data,weapon_info);\
+	TrieSetCell(log_ids_trie,%2,ArraySize(weapons_data) - 1)
 
 public plugin_init()
 {
@@ -310,7 +325,53 @@ public plugin_cfg()
 		FW_BExplode = CreateMultiForward("bomb_explode",ET_IGNORE,FP_CELL,FP_CELL)
 		FW_BDefusing = CreateMultiForward("bomb_defusing",ET_IGNORE,FP_CELL)
 		FW_BDefused = CreateMultiForward("bomb_defused",ET_IGNORE,FP_CELL)
+		FW_GThrow = CreateMultiForward("grenade_throw",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL)
+		
+		register_forward(FM_SetModel,"FMHook_SetModel",true)
 	}
+	
+	new weapon_info[WEAPON_INFO_SIZE]
+	
+	// 
+	
+	
+	
+	log_ids_trie = TrieCreate()
+	// 	               is_meele  + название +   логнейм
+	weapons_data = ArrayCreate(WEAPON_INFO_SIZE)
+	
+	REG_INFO(false,"","")
+	REG_INFO(false,"228 Compact","p228")
+	REG_INFO(false,"","")
+	REG_INFO(false,"Schmidt Scout","scout")
+	REG_INFO(false,"HE Grenade","grenade")
+	REG_INFO(false,"Leone YG1265 Auto Shotgun","xm1014")
+	REG_INFO(false,"C4","weapon_c4")
+	REG_INFO(false,"Ingram Mac-10","mac10")
+	REG_INFO(false,"Bullpup AUG","aug")
+	REG_INFO(false,"Smoke Grenade","grenade")
+	REG_INFO(false,".40 Dual Elites","elite")
+	REG_INFO(false,"ES Five-Seven","fiveseven")
+	REG_INFO(false,"K&M UMP45","ump45")
+	REG_INFO(false,"Krieg 550 Commando","sg550")
+	REG_INFO(false,"IDF Defender","galil")
+	REG_INFO(false,"Clarion 5.56","famas")
+	REG_INFO(false,"K&M .45 Tactical","usp")
+	REG_INFO(false,"9X19mm Sidearm","glock18")
+	REG_INFO(false,"Magnum Sniper Rifle","awp")
+	REG_INFO(false,"K&M Submachine Gun","mp5navy")
+	REG_INFO(false,"M249","m249")
+	REG_INFO(false,"Leone 12 guage Super","m3")
+	REG_INFO(false,"Maverick M4A1 Carbine","m4a1")
+	REG_INFO(false,"Schmidt Machine Pistol","tmp")
+	REG_INFO(false,"D3/AU-1","g3sg1")
+	REG_INFO(false,"Flashbang","flashbang")
+	REG_INFO(false,"Night Hawk .50C","deagle")
+	REG_INFO(false,"Krieg 552 Commando","sg552")
+	REG_INFO(false,"CV-47","ak47")
+	REG_INFO(true,"Combat Knife","knife")
+	REG_INFO(false,"ES C90","p90")
+	
 }
 
 /*
@@ -376,7 +437,7 @@ public EventHook_Damage(player)
 	
 	if(!(0 < dmg_inflictor <= MaxClients))
 	{
-		// TODO: урон с гранаты
+		// урон с гранаты на данным момент не учитывается
 		
 		return PLUGIN_CONTINUE
 	}
@@ -397,7 +458,47 @@ public EventHook_DeathMsg()
 	new killer_id = read_data(1)
 	new victim_id = read_data(2)
 	
-	Stats_SaveKill(killer_id,victim_id)
+	/*
+	* пропускаем эту проверку, т.к. в плагине все переменные обнуляются при подключении
+	if(!is_user_connected(killer_id) || !is_user_connected(victim_id))
+	{
+		return PLUGIN_CONTINUE
+	}
+	*/
+	
+	// узнаем лог код оружия
+	new log_name[32]
+	read_data(4,log_name,charsmax(log_name))
+	
+	if(!log_name[0]) // убийство без оружия
+	{
+		return PLUGIN_CONTINUE
+	}
+	
+	new weapon_id
+	
+	// пробуем получить id оружия на основе его лог-кода
+	if(!TrieGetCell(log_ids_trie,log_name,weapon_id)) 
+	{
+		return PLUGIN_CONTINUE // убийство неизвестным оружием
+	}
+	
+	new last_hit
+	
+	if(pev_valid(victim_id) == 2)
+	{
+		// получаем hitbox смертельного попадания
+		#if AMXX_VERSION_NUM >= 183
+			last_hit = get_ent_data(victim_id,"CBaseMonster","m_LastHitGroup")
+		#else
+			#define m_LastHitGroup 75
+			last_hit = get_pdata_int(victim_id,m_LastHitGroup)
+		#endif
+	}
+
+	Stats_SaveKill(killer_id,victim_id,weapon_id,last_hit) // сохраняем
+	
+	return PLUGIN_CONTINUE
 }
 
 //
@@ -466,6 +567,49 @@ public EventHook_TextMsg(player)
 }
 
 //
+// Форвард grenade_throw
+//
+public FMHook_SetModel(ent,model[])
+{
+	new owner = pev(ent,pev_owner)
+	
+	new Float:dmg_time
+	pev(ent,pev_dmgtime,dmg_time)
+	
+	if(dmg_time <= 0.0 || !is_user_connected(owner))
+	{
+		return FMRES_IGNORED
+	}
+	
+	new classname[32]
+	pev(ent,pev_classname,classname,charsmax(classname))
+	
+	if(strcmp(classname,"grenade") != 0) // реагируем только на гранаты
+	{
+		return FMRES_IGNORED
+	}
+	
+	new wId
+	
+	if(model[9] == 'h') // модель хеешки
+	{
+		wId = CSW_HEGRENADE
+	}
+	else if(model[9] == 'f') // модель флешки
+	{
+		wId = CSW_FLASHBANG
+	}
+	else if(model[9] == 's') // модель смока
+	{
+		wId = CSW_SMOKEGRENADE
+	}
+	
+	ExecuteForward(FW_GThrow,dummy_ret,owner,ent,wId)
+	
+	return FMRES_IGNORED
+}
+
+//
 // Учет выстрелов
 //
 Stats_SaveShot(player,wpn_id)
@@ -475,6 +619,8 @@ Stats_SaveShot(player,wpn_id)
 	
 	player_wrstats[player][0][STATS_SHOTS] ++
 	player_wrstats[player][wpn_id][STATS_SHOTS] ++
+	
+	return true
 }
 
 //
@@ -511,32 +657,30 @@ Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 	player_astats[victim][0][hit_place + STATS_END] ++
 	
 	// оружие, с которого убил для astats, vstats
-	new weapon_name[32]
-	get_weaponname(wpn_id,weapon_name,charsmax(weapon_name))
-	//ucfirst(weapon_name[7])
-		
+	new weapon_info[WEAPON_INFO_SIZE]
+	ArrayGetArray(weapons_data,wpn_id,weapon_info)
+	
 	copy(player_vstats[attacker][victim][STATS_END + HIT_END],
 		MAX_NAME_LENGTH - 1,
-		weapon_name[7]
+		weapon_info[1]
 	)
 	
 	copy(player_astats[victim][attacker][STATS_END + HIT_END],
 		MAX_NAME_LENGTH - 1,
-		weapon_name[7]
+		weapon_info[1]
 	)
 	
 	if(FW_Damage)
 		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,damage,wpn_id,hit_place,is_tk(attacker,victim))
+		
+	return true
 }
 
 //
 // Учет смертей
 //
-Stats_SaveKill(killer,victim)
+Stats_SaveKill(killer,victim,wpn_id,hit_place)
 {
-	static wpn_id,hit_place
-	get_user_attacker(victim,wpn_id,hit_place)
-	
 	if(!is_tk(killer,victim))
 	{
 		player_wstats[killer][0][STATS_KILLS] ++
@@ -597,6 +741,8 @@ Stats_SaveKill(killer,victim)
 	{
 		DB_SavePlayerData(victim)
 	}
+	
+	return true
 }
 
 //
@@ -608,6 +754,8 @@ Stats_SaveBDefusing(id)
 	
 	if(FW_BDefusing)
 		ExecuteForward(FW_BDefusing,dummy_ret,id)
+		
+	return true
 }
 
 Stats_SaveBDefused(id)
@@ -616,6 +764,8 @@ Stats_SaveBDefused(id)
 	
 	if(FW_BDefused)
 		ExecuteForward(FW_BDefused,dummy_ret,id)
+		
+	return true
 }
 
 Stats_SaveBPlanted(id)
@@ -624,6 +774,8 @@ Stats_SaveBPlanted(id)
 	
 	if(FW_BPlanted)
 		ExecuteForward(FW_BPlanted,dummy_ret,id)
+		
+	return true
 }
 
 Stats_SaveBExplode(id)
@@ -632,6 +784,8 @@ Stats_SaveBExplode(id)
 	
 	if(FW_BExplode)
 		ExecuteForward(FW_BExplode,dummy_ret,id,g_defuser)
+		
+	return true
 }
 
 /*
@@ -1489,6 +1643,30 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 * API
 *
 */
+
+#define CHECK_PLAYER(%1) \
+	if (%1 < 1 || %1 > MaxClients) { \
+		log_error(AMX_ERR_NATIVE, "Player out of range (%d)", %1); \
+		return 0; \
+	} else { \
+		if (!is_user_connected(%1) || pev_valid(%1) != 2) { \
+			log_error(AMX_ERR_NATIVE, "Invalid player %d", %1); \
+			return 0; \
+		} \
+	}
+	
+#define CHECK_PLAYERRANGE(%1) \
+	if(%1 < 0 || %1 > MaxClients) {\
+		log_error(AMX_ERR_NATIVE,"Player out of range (%d)",%1);\
+		return 0;\
+	}
+	
+#define CHECK_WEAPON(%1) \
+	if(%1 < 0 || %1 > ArraySize(weapons_data)){\
+		log_error(AMX_ERR_NATIVE,"Invalid weapon id %d",%1);\
+		return 0;\
+	}
+
 public plugin_natives()
 {
 	// default csstats
@@ -1506,9 +1684,16 @@ public plugin_natives()
 	register_native("get_user_stats2","native_get_user_stats2")
 	register_native("get_stats2","native_get_stats2")
 	
+	register_native("xmod_is_melee_wpn","native_xmod_is_melee_wpn")
 	register_native("xmod_get_wpnname","native_xmod_get_wpnname")
+	register_native("xmod_get_wpnlogname","native_xmod_get_wpnlogname")
 	register_native("xmod_get_maxweapons","native_xmod_get_maxweapons")
+	register_native("xmod_get_stats_size","native_get_statsnum")
 	register_native("get_map_objectives","native_get_map_objectives")
+	
+	register_native("custom_weapon_add","native_custom_weapon_add")
+	register_native("custom_weapon_dmg","native_custom_weapon_dmg")
+	register_native("custom_weapon_shot","native_custom_weapon_shot")
 	
 	// csstats mysql
 	register_native("get_statsnum_sql","native_get_statsnum")
@@ -1517,25 +1702,160 @@ public plugin_natives()
 	register_native("get_stats_sql_thread","native_get_stats_thread")
 }
 
+/*
+* Добавление кастомного оружия для статистики
+*
+* native custom_weapon_add(const wpnname[], melee = 0, const logname[] = "")
+*/
+public native_custom_weapon_add(plugin_id,params)
+{
+	if(ArraySize(weapons_data) >= MAX_WEAPONS)
+	{
+		return 0
+	}
+	
+	new weapon_name[MAX_NAME_LENGTH],weapon_log[MAX_NAME_LENGTH],is_melee
+	get_string(1,weapon_name,charsmax(weapon_name))
+	
+	if(params >= 2) // задан флаг is_melee
+		is_melee = get_param(2)
+		
+	if(params == 3) // указан лог код
+	{
+		get_string(3,weapon_log,charsmax(weapon_log))
+	}
+	else // копируем название оружия для лог кода
+	{
+		copy(weapon_log,charsmax(weapon_log),weapon_name)
+	}
+	
+	// регистриурем
+	new weapon_info[WEAPON_INFO_SIZE]
+	REG_INFO(is_melee,weapon_name,weapon_info)
+	
+	return ArraySize(weapons_data) - 1
+}
 
+/*
+* Учет урона кастомного оружия
+*
+* native custom_weapon_dmg(weapon, att, vic, damage, hitplace = 0)
+*/
+public native_custom_weapon_dmg(plugin_id,params)
+{
+	new weapon_id = get_param(1)
+	
+	CHECK_WEAPON(weapon_id)
+	
+	new att = get_param(2)
+	
+	CHECK_PLAYER(att)
+	
+	new vic = get_param(3)
+	
+	CHECK_PLAYER(vic)
+	
+	new dmg = get_param(4)
+	
+	if(dmg < 1)
+	{
+		log_error(AMX_ERR_NATIVE,"Invalid damage %d", dmg)
+		
+		return 0
+	}
+	
+	new hit_place = get_param(5)
+	
+	return Stats_SaveHit(att,vic,dmg,weapon_id,hit_place)
+}
+
+/*
+* Регистрация выстрела кастомного оружия
+*
+* native custom_weapon_shot(weapon, index)
+*/
+public native_custom_weapon_shot(plugin_id,params)
+{
+	new weapon_id = get_param(1)
+	
+	CHECK_WEAPON(weapon_id)
+	
+	new id = get_param(2)
+	
+	CHECK_PLAYER(id)
+	
+	return Stats_SaveShot(id,weapon_id)
+}
+
+/*
+* Возвращает true, если оружие рукопашного боя
+*
+* native xmod_is_melee_wpn(wpnindex)
+*/
+public native_xmod_is_melee_wpn(plugin_id,params)
+{
+	new wpn_id = get_param(1)
+	
+	CHECK_WEAPON(wpn_id)
+	
+	new weapon_info[WEAPON_INFO_SIZE]
+	ArrayGetArray(weapons_data,wpn_id,weapon_info)
+	
+	return weapon_info[0]
+}
+
+/*
+* Получение полного названия оружия
+*
+* native xmod_get_wpnname(wpnindex, name[], len)
+*/
 public native_xmod_get_wpnname(plugin_id,params)
 {
 	new wpn_id = get_param(1)
-	new weapon_name[32]
 	
-	get_weaponname(wpn_id,weapon_name,charsmax(weapon_name))
+	CHECK_WEAPON(wpn_id)
 	
-	replace(weapon_name,charsmax(weapon_name),"weapon_","")
-	ucfirst(weapon_name)
+	new weapon_info[WEAPON_INFO_SIZE]
+	ArrayGetArray(weapons_data,wpn_id,weapon_info)
+	
+	new weapon_name[MAX_NAME_LENGTH]
+	copy(weapon_name,charsmax(weapon_name),weapon_info[1])
 	
 	set_string(2,weapon_name,get_param(3))
 	
 	return strlen(weapon_name)
 }
 
+/*
+* Получение лог кода для оружия
+*
+* native xmod_get_wpnlogname(wpnindex, name[], len)
+*/
+public native_xmod_get_wpnlogname(plugin_id,params)
+{
+	new wpn_id = get_param(1)
+	
+	CHECK_WEAPON(wpn_id)
+	
+	new weapon_info[WEAPON_INFO_SIZE]
+	ArrayGetArray(weapons_data,wpn_id,weapon_info)
+	
+	new weapon_name[MAX_NAME_LENGTH]
+	copy(weapon_name,charsmax(weapon_name),weapon_info[MAX_NAME_LENGTH])
+	
+	set_string(2,weapon_name,get_param(3))
+	
+	return strlen(weapon_name)
+}
+
+/*
+* Возврашение общего количества оружия для статистики
+*
+* native xmod_get_maxweapons()
+*/
 public native_xmod_get_maxweapons(plugin_id,params)
 {
-	return MAX_WEAPONS
+	return ArraySize(weapons_data)
 }
 
 public native_get_map_objectives(plugin_id,params)
@@ -1552,21 +1872,11 @@ public native_get_user_wstats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
-		
-		return false
-	}
+	CHECK_PLAYER(id)
 	
 	new wpn_id = get_param(2)
 	
-	if(wpn_id != 0 && !(0 < wpn_id < MAX_WEAPONS))
-	{
-		log_error(AMX_ERR_NATIVE,"Weapon index out of bounds (%d)",id)
-		
-		return false
-	}
+	CHECK_WEAPON(wpn_id)
 	
 	new stats[8],bh[8]
 	get_user_wstats(id,wpn_id,stats,bh)
@@ -1586,14 +1896,11 @@ public native_get_user_wrstats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
-		
-		return false
-	}
+	CHECK_PLAYER(id)
 	
 	new wpn_id = get_param(2)
+	
+	CHECK_WEAPON(wpn_id)
 	
 	if(wpn_id != 0 && !(0 < wpn_id < MAX_WEAPONS))
 	{
@@ -1621,12 +1928,7 @@ public native_get_user_stats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
-		
-		return 0
-	}
+	CHECK_PLAYER(id)
 	
 	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // данные отсутствуют
 	{
@@ -1648,12 +1950,7 @@ public native_get_user_rstats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
-		
-		return false
-	}
+	CHECK_PLAYER(id)
 	
 	new stats[8],bh[8]
 	get_user_rstats(id,stats,bh)
@@ -1680,12 +1977,8 @@ public native_get_user_vstats(plugin_id,params)
 	new id = get_param(1)
 	new victim = get_param(2)
 	
-	if(!(0 < id <= MaxClients) || (victim != 0 && !(0 < victim <= MaxClients)))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d/%d)",id,victim)
-		
-		return false
-	}
+	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(victim)
 	
 	new stats[STATS_END],hits[HIT_END],wname[MAX_NAME_LENGTH]
 	unpack_vstats(id,victim,stats,hits,wname,charsmax(wname))
@@ -1763,12 +2056,8 @@ public native_get_user_astats(plugin_id,params)
 	new id = get_param(1)
 	new attacker = get_param(2)
 	
-	if(!(0 < id <= MaxClients) || (attacker != 0 && !(0 < attacker <= MaxClients)))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d/%d)",id,attacker)
-		
-		return false
-	}
+	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(attacker)
 	
 	new stats[STATS_END],hits[HIT_END],wname[MAX_NAME_LENGTH]
 	unpack_astats(attacker,id,stats,hits,wname,charsmax(wname))
@@ -1784,12 +2073,7 @@ public native_reset_user_wstats()
 {
 	new id = get_param(1)
 	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
-		
-		return false
-	}
+	CHECK_PLAYER(id)
 	
 	return reset_user_wstats(id)
 }
