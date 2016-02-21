@@ -1,5 +1,5 @@
 ALTER TABLE `csstats`
-	ADD `skill` INT NOT NULL DEFAULT '0.0' AFTER `ip`,
+	ADD `skill` FLOAT NOT NULL DEFAULT '0.0' AFTER `ip`,
 	ADD `h_0` INT NOT NULL AFTER `hits_xml`,
 	ADD `h_1` INT NOT NULL AFTER `h_0`,
 	ADD `h_2` INT NOT NULL AFTER `h_1`,
