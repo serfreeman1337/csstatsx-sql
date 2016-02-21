@@ -1,9 +1,9 @@
-CREATE TABLE IF NOT EXISTS `csstats2` (
+CREATE TABLE IF NOT EXISTS `csstats` (
 	`id` int(11) NOT NULL AUTO_INCREMENT,
 	`steamid` varchar(30) NOT NULL,
 	`name` varchar(32) NOT NULL,
 	`ip` varchar(16) NOT NULL,
-	`skill` int(11) NOT NULL DEFAULT '100',
+	`skill` float NOT NULL DEFAULT '0.0',
 	`kills` int(11) NOT NULL DEFAULT '0',
 	`deaths` int(11) NOT NULL DEFAULT '0',
 	`hs` int(11) NOT NULL DEFAULT '0',

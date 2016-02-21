@@ -9,7 +9,7 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5 Dev 4"
+#define VERSION "0.5 Dev 5"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
 #define LASTUPDATE "21, February (02), 2016"
@@ -25,29 +25,29 @@
 new Handle:sql
 new Handle:sql_con
 
-/* -  КОНСТАНТЫ - */
+/* -  РљРћРќРЎРўРђРќРўР« - */
 
-enum _:sql_que_type	// тип sql запроса
+enum _:sql_que_type	// С‚РёРї sql Р·Р°РїСЂРѕСЃР°
 {
 	SQL_DUMMY,
-	SQL_LOAD,	// загрузка статистики
-	SQL_UPDATE,	// обновление
-	SQL_INSERT,	// внесение новой записи
-	SQL_UPDATERANK,	// получение ранков игроков,
-	SQL_GETSTATS	// потоквый запрос на get_stats
+	SQL_LOAD,	// Р·Р°РіСЂСѓР·РєР° СЃС‚Р°С‚РёСЃС‚РёРєРё
+	SQL_UPDATE,	// РѕР±РЅРѕРІР»РµРЅРёРµ
+	SQL_INSERT,	// РІРЅРµСЃРµРЅРёРµ РЅРѕРІРѕР№ Р·Р°РїРёСЃРё
+	SQL_UPDATERANK,	// РїРѕР»СѓС‡РµРЅРёРµ СЂР°РЅРєРѕРІ РёРіСЂРѕРєРѕРІ,
+	SQL_GETSTATS	// РїРѕС‚РѕРєРІС‹Р№ Р·Р°РїСЂРѕСЃ РЅР° get_stats
 }
 
-enum _:load_state_type	// состояние получение статистики
+enum _:load_state_type	// СЃРѕСЃС‚РѕСЏРЅРёРµ РїРѕР»СѓС‡РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё
 {
-	LOAD_NO,	// данных нет
-	LOAD_WAIT,	// ожидание данных
-	LOAD_OK,	// есть данные
-	LOAD_NEW,	// новая запись
-	LOAD_NEWWAIT,	// новая запись, ждем ответа
-	LOAD_UPDATE	// перезагрузить после обновления
+	LOAD_NO,	// РґР°РЅРЅС‹С… РЅРµС‚
+	LOAD_WAIT,	// РѕР¶РёРґР°РЅРёРµ РґР°РЅРЅС‹С…
+	LOAD_OK,	// РµСЃС‚СЊ РґР°РЅРЅС‹Рµ
+	LOAD_NEW,	// РЅРѕРІР°СЏ Р·Р°РїРёСЃСЊ
+	LOAD_NEWWAIT,	// РЅРѕРІР°СЏ Р·Р°РїРёСЃСЊ, Р¶РґРµРј РѕС‚РІРµС‚Р°
+	LOAD_UPDATE	// РїРµСЂРµР·Р°РіСЂСѓР·РёС‚СЊ РїРѕСЃР»Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ
 }
 
-enum _:row_ids		// столбцы таблицы
+enum _:row_ids		// СЃС‚РѕР»Р±С†С‹ С‚Р°Р±Р»РёС†С‹
 {
 	ROW_ID,
 	ROW_STEAMID,
@@ -78,7 +78,7 @@ enum _:row_ids		// столбцы таблицы
 	ROW_LASTJOIN
 }
 
-new const row_names[row_ids][] = // имена столбцов
+new const row_names[row_ids][] = // РёРјРµРЅР° СЃС‚РѕР»Р±С†РѕРІ
 {
 	"id",
 	"steamid",
@@ -130,7 +130,7 @@ enum _:KILL_EVENT
 	WORLDSPAWN
 }
 
-const QUERY_LENGTH =	1216	// размер переменной sql запроса
+const QUERY_LENGTH =	1216	// СЂР°Р·РјРµСЂ РїРµСЂРµРјРµРЅРЅРѕР№ sql Р·Р°РїСЂРѕСЃР°
 
 #define STATS2_DEFAT	0
 #define STATS2_DEFOK	1
@@ -145,32 +145,35 @@ new const task_confin		=	21337
 #define MAX_WEAPONS		CSW_P90 + 1 + MAX_CWEAPONS
 #define HIT_END			HIT_RIGHTLEG + 1
 
-/* - СТРУКТУРА ДАННЫХ - */
+/* - РЎРўР РЈРљРўРЈР Рђ Р”РђРќРќР«РҐ - */
 
 enum _:player_data_struct
 {
-	PLAYER_ID,		// ид игрока в базе данных
-	PLAYER_LOADSTATE,	// состояние загрузки статистики игрока
-	PLAYER_RANK,		// ранк игрока
-	PLAYER_STATS[STATS_END],	// статистика игрока
-	PLAYER_STATSLAST[STATS_END],	// разница в статистики
-	PLAYER_HITS[HIT_END],		// статистика попаданий
-	PLAYER_HITSLAST[HIT_END],	// разница в статистике попаданий
-	PLAYER_STATS2[4],	// статистика cstrike
-	PLAYER_STATS2LAST[4],	// разница
+	PLAYER_ID,		// РёРґ РёРіСЂРѕРєР° РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С…
+	PLAYER_LOADSTATE,	// СЃРѕСЃС‚РѕСЏРЅРёРµ Р·Р°РіСЂСѓР·РєРё СЃС‚Р°С‚РёСЃС‚РёРєРё РёРіСЂРѕРєР°
+	PLAYER_RANK,		// СЂР°РЅРє РёРіСЂРѕРєР°
+	PLAYER_STATS[STATS_END],	// СЃС‚Р°С‚РёСЃС‚РёРєР° РёРіСЂРѕРєР°
+	PLAYER_STATSLAST[STATS_END],	// СЂР°Р·РЅРёС†Р° РІ СЃС‚Р°С‚РёСЃС‚РёРєРё
+	PLAYER_HITS[HIT_END],		// СЃС‚Р°С‚РёСЃС‚РёРєР° РїРѕРїР°РґР°РЅРёР№
+	PLAYER_HITSLAST[HIT_END],	// СЂР°Р·РЅРёС†Р° РІ СЃС‚Р°С‚РёСЃС‚РёРєРµ РїРѕРїР°РґР°РЅРёР№
+	PLAYER_STATS2[4],	// СЃС‚Р°С‚РёСЃС‚РёРєР° cstrike
+	PLAYER_STATS2LAST[4],	// СЂР°Р·РЅРёС†Р°
+	Float:PLAYER_SKILL,		// СЃРєРёР»Р»
+	PLAYER_ONLINE,		// РІСЂРµРјСЏ РѕРЅР»Р°Р№РЅР°
+	// СЏ РЅРµ РїРѕРјРЅСЋ С‡Рѕ Р·Р° diff Рё last, РЅРѕ Р±РµР· СЌС‚РѕРіРѕ РЅРµ СЂР°Р±РѕС‚Р°РµС‚ XD
+	Float:PLAYER_SKILLLAST,
 	PLAYER_ONLINEDIFF,
-	PLAYER_ONLINE,
 	PLAYER_ONLINELAST
-	
 }
 
-enum _:stats_cache_struct	// кеширование для get_stats
+enum _:stats_cache_struct	// РєРµС€РёСЂРѕРІР°РЅРёРµ РґР»СЏ get_stats
 {
 	CACHE_STATS[8],
 	CACHE_STATS2[8],
 	CACHE_HITS[8],
 	CACHE_NAME[32],
 	CACHE_STEAMID[30],
+	CACHE_SKILL,
 	bool:CACHE_LAST
 }
 
@@ -185,18 +188,19 @@ enum _:cvar_set
 	CVAR_UPDATESTYLE,
 	CVAR_RANK,
 	CVAR_RANKFORMULA,
+	CVAR_SKILLFORMULA,
 	CVAR_RANKBOTS,
 	CVAR_USEFORWARDS
 }
 
-/* - ПЕРЕМЕННЫЕ - */
+/* - РџР•Р Р•РњР•РќРќР«Р• - */
 
 new player_data[MAX_PLAYERS + 1][player_data_struct]
 new statsnum
 
 new cvar[cvar_set]
 
-new Trie:stats_cache_trie	// дерево кеша для get_stats // ключ - ранг
+new Trie:stats_cache_trie	// РґРµСЂРµРІРѕ РєРµС€Р° РґР»СЏ get_stats // РєР»СЋС‡ - СЂР°РЅРі
 
 /* - CSSTATS CORE - */
 
@@ -228,17 +232,17 @@ new FW_GThrow
 
 new dummy_ret
 
-// осталось монитор прихуярить
+// РѕСЃС‚Р°Р»РѕСЃСЊ РјРѕРЅРёС‚РѕСЂ РїСЂРёС…СѓСЏСЂРёС‚СЊ
 
 new g_planter
 new g_defuser
 
 #define WEAPON_INFO_SIZE		1 + (MAX_NAME_LENGTH * 2)
 
-new Array:weapons_data			// массив с инфой по оружию
-new Trie:log_ids_trie			// дерево для быстрого определения id оружия по лог-коду
+new Array:weapons_data			// РјР°СЃСЃРёРІ СЃ РёРЅС„РѕР№ РїРѕ РѕСЂСѓР¶РёСЋ
+new Trie:log_ids_trie			// РґРµСЂРµРІРѕ РґР»СЏ Р±С‹СЃС‚СЂРѕРіРѕ РѕРїСЂРµРґРµР»РµРЅРёСЏ id РѕСЂСѓР¶РёСЏ РїРѕ Р»РѕРі-РєРѕРґСѓ
 
-// макрос для помощи реагистрации инфы по оружию
+// РјР°РєСЂРѕСЃ РґР»СЏ РїРѕРјРѕС‰Рё СЂРµР°РіРёСЃС‚СЂР°С†РёРё РёРЅС„С‹ РїРѕ РѕСЂСѓР¶РёСЋ
 #define REG_INFO(%0,%1,%2)\
 	weapon_info[0] = %0;\
 	copy(weapon_info[1],MAX_NAME_LENGTH,%1);\
@@ -252,35 +256,35 @@ public plugin_init()
 	register_cvar("csstatsx_sql", VERSION, FCVAR_SERVER | FCVAR_SPONLY | FCVAR_UNLOGGED)
 	
 	/*
-	* хост mysql
+	* С…РѕСЃС‚ mysql
 	*/
 	cvar[CVAR_SQL_HOST] = register_cvar("csstats_sql_host","localhost",FCVAR_UNLOGGED|FCVAR_PROTECTED)
 	
 	/*
-	* пользователь mysql
+	* РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ mysql
 	*/
 	cvar[CVAR_SQL_USER] = register_cvar("csstats_sql_user","root",FCVAR_UNLOGGED|FCVAR_PROTECTED)
 	
 	/*
-	* пароль mysql
+	* РїР°СЂРѕР»СЊ mysql
 	*/
 	cvar[CVAR_SQL_PASS] = register_cvar("csstats_sql_pass","",FCVAR_UNLOGGED|FCVAR_PROTECTED)
 	
 	/*
-	* название БД mysql или sqlite
+	* РЅР°Р·РІР°РЅРёРµ Р‘Р” mysql РёР»Рё sqlite
 	*/
 	cvar[CVAR_SQL_DB] = register_cvar("csstats_sql_db","amxx",FCVAR_UNLOGGED|FCVAR_PROTECTED)
 	
 	/*
-	* название таблицы в БД
+	* РЅР°Р·РІР°РЅРёРµ С‚Р°Р±Р»РёС†С‹ РІ Р‘Р”
 	*/
 	cvar[CVAR_SQL_TABLE] = register_cvar("csstats_sql_table","csstats",FCVAR_UNLOGGED|FCVAR_PROTECTED)
 	
 	/*
-	* как вести учет игроков
-	*	0			- по нику
-	*	1			- по steamid
-	*	2			- по ip
+	* РєР°Рє РІРµСЃС‚Рё СѓС‡РµС‚ РёРіСЂРѕРєРѕРІ
+	*	0			- РїРѕ РЅРёРєСѓ
+	*	1			- РїРѕ steamid
+	*	2			- РїРѕ ip
 	*/
 	cvar[CVAR_RANK] = get_cvar_pointer("csstats_rank")
 	
@@ -288,9 +292,9 @@ public plugin_init()
 		cvar[CVAR_RANK] = register_cvar("csstats_rank","0")
 		
 	/*
-	* запись статистики ботов
-	*	0			- не записывать
-	*	1			- записывать0
+	* Р·Р°РїРёСЃСЊ СЃС‚Р°С‚РёСЃС‚РёРєРё Р±РѕС‚РѕРІ
+	*	0			- РЅРµ Р·Р°РїРёСЃС‹РІР°С‚СЊ
+	*	1			- Р·Р°РїРёСЃС‹РІР°С‚СЊ0
 	*/
 	cvar[CVAR_RANKBOTS] = get_cvar_pointer("csstats_rankbots")
 	
@@ -298,28 +302,35 @@ public plugin_init()
 		cvar[CVAR_RANKBOTS] = register_cvar("csstats_rankbots","1")
 	
 	/*
-	* как обновлять статистику игрока в БД
-	*	-2 			- при смерти и дисконнекте
-	*	-1			- в конце раунда и дисконнекте
-	*	0 			- при дисконнекте
-	*	значение больше 0 	- через указанное кол-во секунд и дисконнекте
+	* РєР°Рє РѕР±РЅРѕРІР»СЏС‚СЊ СЃС‚Р°С‚РёСЃС‚РёРєСѓ РёРіСЂРѕРєР° РІ Р‘Р”
+	*	-2 			- РїСЂРё СЃРјРµСЂС‚Рё Рё РґРёСЃРєРѕРЅРЅРµРєС‚Рµ
+	*	-1			- РІ РєРѕРЅС†Рµ СЂР°СѓРЅРґР° Рё РґРёСЃРєРѕРЅРЅРµРєС‚Рµ
+	*	0 			- РїСЂРё РґРёСЃРєРѕРЅРЅРµРєС‚Рµ
+	*	Р·РЅР°С‡РµРЅРёРµ Р±РѕР»СЊС€Рµ 0 	- С‡РµСЂРµР· СѓРєР°Р·Р°РЅРЅРѕРµ РєРѕР»-РІРѕ СЃРµРєСѓРЅРґ Рё РґРёСЃРєРѕРЅРЅРµРєС‚Рµ
 	*/
 	cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","-2")
 	
 	/*
-	* включить собственные форварды для client_death, client_damage
-	*	0			- выключить
-	*	1			- включить, небоходимо, если csstats_sql используется в качестве замены модуля
+	* РІРєР»СЋС‡РёС‚СЊ СЃРѕР±СЃС‚РІРµРЅРЅС‹Рµ С„РѕСЂРІР°СЂРґС‹ РґР»СЏ client_death, client_damage
+	*	0			- РІС‹РєР»СЋС‡РёС‚СЊ
+	*	1			- РІРєР»СЋС‡РёС‚СЊ, РЅРµР±РѕС…РѕРґРёРјРѕ, РµСЃР»Рё csstats_sql РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РІ РєР°С‡РµСЃС‚РІРµ Р·Р°РјРµРЅС‹ РјРѕРґСѓР»СЏ
 	*/
 	cvar[CVAR_USEFORWARDS] = register_cvar("csstats_sql_forwards","0")
 	
 	/*
-	* формула расчета ранга
-	*	0			- убйиства - смерти - тк
-	*	1			- убийства
-	*	2			- убийства + хедшоты
+	* С„РѕСЂРјСѓР»Р° СЂР°СЃС‡РµС‚Р° СЂР°РЅРіР°
+	*	0			- СѓР±Р№РёСЃС‚РІР° - СЃРјРµСЂС‚Рё - С‚Рє
+	*	1			- СѓР±РёР№СЃС‚РІР°
+	*	2			- СѓР±РёР№СЃС‚РІР° + С…РµРґС€РѕС‚С‹
+	*	3			- СЃРєРёР»Р»
 	*/
 	cvar[CVAR_RANKFORMULA] = register_cvar("csstats_sql_rankformula","0")
+	
+	/*
+	* С„РѕСЂРјСѓР»Р° СЂР°СЃС‡РµС‚Р° СЃРєРёР»Р»Р°
+	*	0			- The ELO Method (http://fastcup.net/rating.html)
+	*/
+	cvar[CVAR_SKILLFORMULA] = register_cvar("csstats_sql_skillformula","0")
 	
 	#if AMXX_VERSION_NUM < 183
 	MaxClients = get_maxplayers()
@@ -338,10 +349,10 @@ public plugin_init()
 
 public plugin_cfg()
 {
-	// форсируем выполнение exec addons/amxmodx/configs/amxx.cfg
+	// С„РѕСЂСЃРёСЂСѓРµРј РІС‹РїРѕР»РЅРµРЅРёРµ exec addons/amxmodx/configs/amxx.cfg
 	server_exec()
 	
-	// читаем квары на подключение
+	// С‡РёС‚Р°РµРј РєРІР°СЂС‹ РЅР° РїРѕРґРєР»СЋС‡РµРЅРёРµ
 	new host[128],user[64],pass[64],db[64]
 	get_pcvar_string(cvar[CVAR_SQL_HOST],host,charsmax(host))
 	get_pcvar_string(cvar[CVAR_SQL_USER],user,charsmax(user))
@@ -350,13 +361,13 @@ public plugin_cfg()
 	
 	sql = SQL_MakeDbTuple(host,user,pass,db)
 	
-	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
+	// РґР»СЏ РїРѕРґРґРµСЂР¶РєРё utf8 РЅРёРєРѕРІ С‚СЂРµР±СѓРµС‚СЃСЏ AMXX 1.8.3-dev-git3799 РёР»Рё РІС‹С€Рµ
 	
 	#if AMXX_VERSION_NUM >= 183
 	SQL_SetCharset(sql,"utf8")
 	#endif
 	
-	// обновление статистики в БД каждые n сек
+	// РѕР±РЅРѕРІР»РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё РІ Р‘Р” РєР°Р¶РґС‹Рµ n СЃРµРє
 	if(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) > 0)
 	{
 		set_task(
@@ -386,7 +397,7 @@ public plugin_cfg()
 	
 	
 	log_ids_trie = TrieCreate()
-	// 	               is_meele  + название +   логнейм
+	// 	               is_meele  + РЅР°Р·РІР°РЅРёРµ +   Р»РѕРіРЅРµР№Рј
 	weapons_data = ArrayCreate(WEAPON_INFO_SIZE)
 	
 	REG_INFO(false,"","")
@@ -423,7 +434,7 @@ public plugin_cfg()
 }
 
 /*
-* загружаем статистику при подключении
+* Р·Р°РіСЂСѓР¶Р°РµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ РїСЂРё РїРѕРґРєР»СЋС‡РµРЅРёРё
 */
 public client_putinserver(id)
 {
@@ -432,7 +443,7 @@ public client_putinserver(id)
 }
 
 /*
-* сохраняем статистику при дисконнекте
+* СЃРѕС…СЂР°РЅСЏРµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ РїСЂРё РґРёСЃРєРѕРЅРЅРµРєС‚Рµ
 */
 #if AMXX_VERSION_NUM < 183
 public client_disconnect(id)
@@ -447,23 +458,23 @@ public client_disconnected(id)
 }
 
 //
-// Регистрация выстрелов
+// Р РµРіРёСЃС‚СЂР°С†РёСЏ РІС‹СЃС‚СЂРµР»РѕРІ
 //
 public EventHook_CurWeapon(player)
 {
-	#define LASTWEAPON 	0	// id посл. оружия
-	#define LASTCLIP	1	// кол-во потронов посл. оружия
+	#define LASTWEAPON 	0	// id РїРѕСЃР». РѕСЂСѓР¶РёСЏ
+	#define LASTCLIP	1	// РєРѕР»-РІРѕ РїРѕС‚СЂРѕРЅРѕРІ РїРѕСЃР». РѕСЂСѓР¶РёСЏ
 	
-	static event_tmp[MAX_PLAYERS + 1][LASTCLIP + 1]	// помним послед
+	static event_tmp[MAX_PLAYERS + 1][LASTCLIP + 1]	// РїРѕРјРЅРёРј РїРѕСЃР»РµРґ
 	static weapon_id; weapon_id = read_data(2)
 	static clip_ammo; clip_ammo = read_data(3)
 	
-	if(event_tmp[player][LASTWEAPON] != weapon_id) // оружие было изменено, запоминаем новое кол-во патронов
+	if(event_tmp[player][LASTWEAPON] != weapon_id) // РѕСЂСѓР¶РёРµ Р±С‹Р»Рѕ РёР·РјРµРЅРµРЅРѕ, Р·Р°РїРѕРјРёРЅР°РµРј РЅРѕРІРѕРµ РєРѕР»-РІРѕ РїР°С‚СЂРѕРЅРѕРІ
 	{
 		event_tmp[player][LASTWEAPON] = weapon_id
 		event_tmp[player][LASTCLIP] = clip_ammo
 	}
-	else if(event_tmp[player][LASTCLIP] > clip_ammo) // кол-во патронов в магазине уменьшилось, регистрируем выстрел
+	else if(event_tmp[player][LASTCLIP] > clip_ammo) // РєРѕР»-РІРѕ РїР°С‚СЂРѕРЅРѕРІ РІ РјР°РіР°Р·РёРЅРµ СѓРјРµРЅСЊС€РёР»РѕСЃСЊ, СЂРµРіРёСЃС‚СЂРёСЂСѓРµРј РІС‹СЃС‚СЂРµР»
 	{
 		Stats_SaveShot(player,weapon_id)
 		event_tmp[player][LASTCLIP] = clip_ammo
@@ -471,7 +482,7 @@ public EventHook_CurWeapon(player)
 }
 
 //
-// Регистрация попадания
+// Р РµРіРёСЃС‚СЂР°С†РёСЏ РїРѕРїР°РґР°РЅРёСЏ
 //
 public EventHook_Damage(player)
 {
@@ -485,7 +496,7 @@ public EventHook_Damage(player)
 	
 	if(!(0 < dmg_inflictor <= MaxClients))
 	{
-		// урон с гранаты на данным момент не учитывается
+		// СѓСЂРѕРЅ СЃ РіСЂР°РЅР°С‚С‹ РЅР° РґР°РЅРЅС‹Рј РјРѕРјРµРЅС‚ РЅРµ СѓС‡РёС‚С‹РІР°РµС‚СЃСЏ
 		
 		return PLUGIN_CONTINUE
 	}
@@ -499,7 +510,7 @@ public EventHook_Damage(player)
 }
 
 //
-// Регистрация убийств
+// Р РµРіРёСЃС‚СЂР°С†РёСЏ СѓР±РёР№СЃС‚РІ
 //
 public EventHook_DeathMsg()
 {
@@ -507,35 +518,35 @@ public EventHook_DeathMsg()
 	new victim_id = read_data(2)
 	
 	/*
-	* пропускаем эту проверку, т.к. в плагине все переменные обнуляются при подключении
+	* РїСЂРѕРїСѓСЃРєР°РµРј СЌС‚Сѓ РїСЂРѕРІРµСЂРєСѓ, С‚.Рє. РІ РїР»Р°РіРёРЅРµ РІСЃРµ РїРµСЂРµРјРµРЅРЅС‹Рµ РѕР±РЅСѓР»СЏСЋС‚СЃСЏ РїСЂРё РїРѕРґРєР»СЋС‡РµРЅРёРё
 	if(!is_user_connected(killer_id) || !is_user_connected(victim_id))
 	{
 		return PLUGIN_CONTINUE
 	}
 	*/
 	
-	// узнаем лог код оружия
+	// СѓР·РЅР°РµРј Р»РѕРі РєРѕРґ РѕСЂСѓР¶РёСЏ
 	new log_name[32]
 	read_data(4,log_name,charsmax(log_name))
 	
-	if(!log_name[0]) // убийство без оружия
+	if(!log_name[0]) // СѓР±РёР№СЃС‚РІРѕ Р±РµР· РѕСЂСѓР¶РёСЏ
 	{
 		return PLUGIN_CONTINUE
 	}
 	
 	new weapon_id
 	
-	// пробуем получить id оружия на основе его лог-кода
+	// РїСЂРѕР±СѓРµРј РїРѕР»СѓС‡РёС‚СЊ id РѕСЂСѓР¶РёСЏ РЅР° РѕСЃРЅРѕРІРµ РµРіРѕ Р»РѕРі-РєРѕРґР°
 	if(!TrieGetCell(log_ids_trie,log_name,weapon_id)) 
 	{
-		return PLUGIN_CONTINUE // убийство неизвестным оружием
+		return PLUGIN_CONTINUE // СѓР±РёР№СЃС‚РІРѕ РЅРµРёР·РІРµСЃС‚РЅС‹Рј РѕСЂСѓР¶РёРµРј
 	}
 	
 	new last_hit
 	
 	if(pev_valid(victim_id) == 2)
 	{
-		// получаем hitbox смертельного попадания
+		// РїРѕР»СѓС‡Р°РµРј hitbox СЃРјРµСЂС‚РµР»СЊРЅРѕРіРѕ РїРѕРїР°РґР°РЅРёСЏ
 		#if AMXX_VERSION_NUM >= 183
 			last_hit = get_ent_data(victim_id,"CBaseMonster","m_LastHitGroup")
 		#else
@@ -544,13 +555,13 @@ public EventHook_DeathMsg()
 		#endif
 	}
 
-	Stats_SaveKill(killer_id,victim_id,weapon_id,last_hit) // сохраняем
+	Stats_SaveKill(killer_id,victim_id,weapon_id,last_hit) // СЃРѕС…СЂР°РЅСЏРµРј
 	
 	return PLUGIN_CONTINUE
 }
 
 //
-// Регистрация установки и дефьюза бомбы
+// Р РµРіРёСЃС‚СЂР°С†РёСЏ СѓСЃС‚Р°РЅРѕРІРєРё Рё РґРµС„СЊСЋР·Р° Р±РѕРјР±С‹
 //
 public EventHook_BarTime(player)
 {
@@ -615,7 +626,7 @@ public EventHook_TextMsg(player)
 }
 
 //
-// Форвард grenade_throw
+// Р¤РѕСЂРІР°СЂРґ grenade_throw
 //
 public FMHook_SetModel(ent,model[])
 {
@@ -632,22 +643,22 @@ public FMHook_SetModel(ent,model[])
 	new classname[32]
 	pev(ent,pev_classname,classname,charsmax(classname))
 	
-	if(strcmp(classname,"grenade") != 0) // реагируем только на гранаты
+	if(strcmp(classname,"grenade") != 0) // СЂРµР°РіРёСЂСѓРµРј С‚РѕР»СЊРєРѕ РЅР° РіСЂР°РЅР°С‚С‹
 	{
 		return FMRES_IGNORED
 	}
 	
 	new wId
 	
-	if(model[9] == 'h') // модель хеешки
+	if(model[9] == 'h') // РјРѕРґРµР»СЊ С…РµРµС€РєРё
 	{
 		wId = CSW_HEGRENADE
 	}
-	else if(model[9] == 'f') // модель флешки
+	else if(model[9] == 'f') // РјРѕРґРµР»СЊ С„Р»РµС€РєРё
 	{
 		wId = CSW_FLASHBANG
 	}
-	else if(model[9] == 's') // модель смока
+	else if(model[9] == 's') // РјРѕРґРµР»СЊ СЃРјРѕРєР°
 	{
 		wId = CSW_SMOKEGRENADE
 	}
@@ -658,7 +669,7 @@ public FMHook_SetModel(ent,model[])
 }
 
 //
-// Учет выстрелов
+// РЈС‡РµС‚ РІС‹СЃС‚СЂРµР»РѕРІ
 //
 Stats_SaveShot(player,wpn_id)
 {
@@ -672,7 +683,7 @@ Stats_SaveShot(player,wpn_id)
 }
 
 //
-// Учет попадания
+// РЈС‡РµС‚ РїРѕРїР°РґР°РЅРёСЏ
 //
 Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 {
@@ -704,7 +715,7 @@ Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 	player_astats[victim][0][STATS_DMG] += damage
 	player_astats[victim][0][hit_place + STATS_END] ++
 	
-	// оружие, с которого убил для astats, vstats
+	// РѕСЂСѓР¶РёРµ, СЃ РєРѕС‚РѕСЂРѕРіРѕ СѓР±РёР» РґР»СЏ astats, vstats
 	new weapon_info[WEAPON_INFO_SIZE]
 	ArrayGetArray(weapons_data,wpn_id,weapon_info)
 	
@@ -725,10 +736,15 @@ Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 }
 
 //
-// Учет смертей
+// РЈС‡РµС‚ СЃРјРµСЂС‚РµР№
 //
 Stats_SaveKill(killer,victim,wpn_id,hit_place)
 {
+	if(killer == victim) // РЅРµ СѓС‡РёС‚С‹РІР°РµРј СЃСѓРёС†РёРґ
+	{
+		return false
+	}
+	
 	if(!is_tk(killer,victim))
 	{
 		player_wstats[killer][0][STATS_KILLS] ++
@@ -784,17 +800,45 @@ Stats_SaveKill(killer,victim,wpn_id,hit_place)
 	if(FW_Death)
 		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
 		
-	// обновляем статистику в БД при смерти
+	
+	if(player_data[killer][PLAYER_LOADSTATE] == LOAD_OK && player_data[victim][PLAYER_LOADSTATE] == LOAD_OK) // СЃРєРёР»Р» СЂР°СЃС‡РёС‚С‹РІР°РµС‚СЃСЏ С‚РѕР»СЊРєРѕ РїСЂРё РЅР°Р»РёС‡РёРё СЃС‚Р°С‚РёСЃС‚РёРєРё РёР· Р‘Р”
+	{
+		switch(get_pcvar_num(cvar[CVAR_SKILLFORMULA])) // СЂР°СЃС‡РµС‚ СЃРєРёР»Р»Р°
+		{
+			case 0: // The ELO Method (http://fastcup.net/rating.html)
+			{
+				new Float:delta = 1.0 / (1.0 + floatpower(10.0,(player_data[killer][PLAYER_SKILL] - player_data[victim][PLAYER_SKILL]) / 100.0))
+				new Float:koeff = 0.0
+				
+				if(player_data[killer][PLAYER_STATS][STATS_KILLS] < 100)
+				{
+					koeff = 2.0
+				}
+				else
+				{
+					koeff = 1.5
+				}
+				
+				player_data[killer][PLAYER_SKILL] += (koeff * delta)
+				player_data[victim][PLAYER_SKILL] -= (koeff * delta)
+			}
+		}
+	}
+	
+	
+	// РѕР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ РІ Р‘Р” РїСЂРё СЃРјРµСЂС‚Рё
 	if(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) == -2)
 	{
 		DB_SavePlayerData(victim)
 	}
 	
+	
+	
 	return true
 }
 
 //
-// Учет статистики по бомба
+// РЈС‡РµС‚ СЃС‚Р°С‚РёСЃС‚РёРєРё РїРѕ Р±РѕРјР±Р°
 //
 Stats_SaveBDefusing(id)
 {
@@ -837,7 +881,7 @@ Stats_SaveBExplode(id)
 }
 
 /*
-* изменение ника игрока
+* РёР·РјРµРЅРµРЅРёРµ РЅРёРєР° РёРіСЂРѕРєР°
 */
 public client_infochanged(id)
 {
@@ -845,18 +889,18 @@ public client_infochanged(id)
 	get_user_name(id,cur_name,charsmax(cur_name))
 	get_user_info(id,"name",new_name,charsmax(new_name))
 	
-	if(strcmp(cur_name,new_name) != 0)
+	if(strcmp(cur_name,new_name) != 0 && get_pcvar_num(cvar[CVAR_RANK]) == 0)
 	{
 		DB_SavePlayerData(id,true)
 	}
 }
 
 /*
-* сбрасываем astats,vstats статистику в начале раунда
+* СЃР±СЂР°СЃС‹РІР°РµРј astats,vstats СЃС‚Р°С‚РёСЃС‚РёРєСѓ РІ РЅР°С‡Р°Р»Рµ СЂР°СѓРЅРґР°
 */
 public LogEventHooK_RoundStart()
 {
-	// сбрасываем wrstats, vstats, astats в начале раунда
+	// СЃР±СЂР°СЃС‹РІР°РµРј wrstats, vstats, astats РІ РЅР°С‡Р°Р»Рµ СЂР°СѓРЅРґР°
 	new players[32],pnum
 	get_players(players,pnum)
 	
@@ -870,7 +914,7 @@ public LogEventHooK_RoundStart()
 }
 
 //
-// сохраняем статистику в конце раунда
+// СЃРѕС…СЂР°РЅСЏРµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ РІ РєРѕРЅС†Рµ СЂР°СѓРЅРґР°
 //
 public LogEventHooK_RoundEnd()
 {
@@ -881,17 +925,17 @@ public LogEventHooK_RoundEnd()
 }
 
 /*
-* загрузка статистики игрока из базы данных
+* Р·Р°РіСЂСѓР·РєР° СЃС‚Р°С‚РёСЃС‚РёРєРё РёРіСЂРѕРєР° РёР· Р±Р°Р·С‹ РґР°РЅРЅС‹С…
 */
 DB_LoadPlayerData(id)
 {
-	// пропускаем HLTV
+	// РїСЂРѕРїСѓСЃРєР°РµРј HLTV
 	if(is_user_hltv(id))
 	{
 		return false
 	}
 	
-	// пропускаем ботов, если отключена запись статистики ботов
+	// РїСЂРѕРїСѓСЃРєР°РµРј Р±РѕС‚РѕРІ, РµСЃР»Рё РѕС‚РєР»СЋС‡РµРЅР° Р·Р°РїРёСЃСЊ СЃС‚Р°С‚РёСЃС‚РёРєРё Р±РѕС‚РѕРІ
 	if(!get_pcvar_num(cvar[CVAR_RANKBOTS]) && is_user_bot(id))
 	{
 		return false
@@ -899,7 +943,7 @@ DB_LoadPlayerData(id)
 	
 	new name[96],steamid[30],ip[16]
 	
-	// узнаем ник, ид, айпи игрока
+	// СѓР·РЅР°РµРј РЅРёРє, РёРґ, Р°Р№РїРё РёРіСЂРѕРєР°
 	//get_user_name(id,name,charsmax(name))
 	get_user_info(id,"name",name,charsmax(name))
 	get_user_authid(id,steamid,charsmax(steamid))
@@ -907,7 +951,7 @@ DB_LoadPlayerData(id)
 	
 	mysql_escape_string(name,charsmax(name))
 	
-	// формируем SQL запрос
+	// С„РѕСЂРјРёСЂСѓРµРј SQL Р·Р°РїСЂРѕСЃ
 	new query[QUERY_LENGTH],len,sql_data[2],tbl_name[32]
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	
@@ -923,19 +967,19 @@ DB_LoadPlayerData(id)
 	
 	switch(get_pcvar_num(cvar[CVAR_RANK]))
 	{
-		case 0: // статистика по нику
+		case 0: // СЃС‚Р°С‚РёСЃС‚РёРєР° РїРѕ РЅРёРєСѓ
 		{
 			len += formatex(query[len],charsmax(query)-len," FROM `%s` AS `a` WHERE `name` = '%s'",
 				tbl_name,name
 			)
 		}
-		case 1: // статистика по steamid
+		case 1: // СЃС‚Р°С‚РёСЃС‚РёРєР° РїРѕ steamid
 		{
 			len += formatex(query[len],charsmax(query)-len," FROM `%s` AS `a` WHERE `steamid` = '%s'",
 				tbl_name,steamid
 			)
 		}
-		case 2: // статистика по ip
+		case 2: // СЃС‚Р°С‚РёСЃС‚РёРєР° РїРѕ ip
 		{
 			len += formatex(query[len],charsmax(query)-len," FROM `%s` AS `a` WHERE `ip` = '%s'",
 				tbl_name,ip
@@ -947,7 +991,7 @@ DB_LoadPlayerData(id)
 		}
 	}
 	
-	// отправка потокового запроса
+	// РѕС‚РїСЂР°РІРєР° РїРѕС‚РѕРєРѕРІРѕРіРѕ Р·Р°РїСЂРѕСЃР°
 	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 	
 	return true
@@ -955,11 +999,11 @@ DB_LoadPlayerData(id)
 
 
 /*
-* сохранение статистики игрока
+* СЃРѕС…СЂР°РЅРµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё РёРіСЂРѕРєР°
 */
 DB_SavePlayerData(id,bool:reload = false)
 {
-	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // игрок не загрузился
+	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // РёРіСЂРѕРє РЅРµ Р·Р°РіСЂСѓР·РёР»СЃСЏ
 	{
 		return false
 	}
@@ -976,7 +1020,7 @@ DB_SavePlayerData(id,bool:reload = false)
 	
 	sql_data[1] = id
 	
-	// узнаем ник, ид, айпи игрока
+	// СѓР·РЅР°РµРј РЅРёРє, РёРґ, Р°Р№РїРё РёРіСЂРѕРєР°
 	//get_user_name(id,name,charsmax(name))
 	get_user_info(id,"name",name,charsmax(name))
 	get_user_authid(id,steamid,charsmax(steamid))
@@ -995,7 +1039,7 @@ DB_SavePlayerData(id,bool:reload = false)
 	
 	switch(player_data[id][PLAYER_LOADSTATE])
 	{
-		case LOAD_OK: // обновление данных
+		case LOAD_OK: // РѕР±РЅРѕРІР»РµРЅРёРµ РґР°РЅРЅС‹С…
 		{
 			if(reload)
 			{
@@ -1009,17 +1053,17 @@ DB_SavePlayerData(id,bool:reload = false)
 			new diffhits[sizeof player_data[][PLAYER_HITS]]
 			new len,to_save
 			
-			len += formatex(query[len],charsmax(query) - len,"SET NAMES `utf8`;UPDATE `%s` SET",tbl_name)
+			len += formatex(query[len],charsmax(query) - len,"UPDATE `%s` SET",tbl_name)
 			
-			// обновляем по разнице с предедущими данными
+			// РѕР±РЅРѕРІР»СЏРµРј РїРѕ СЂР°Р·РЅРёС†Рµ СЃ РїСЂРµРґРµРґСѓС‰РёРјРё РґР°РЅРЅС‹РјРё
 			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS] ; i++)
 			{
-				diffstats[i] = stats[i] - player_data[id][PLAYER_STATSLAST][i] // узнаем разницу
+				diffstats[i] = stats[i] - player_data[id][PLAYER_STATSLAST][i] // СѓР·РЅР°РµРј СЂР°Р·РЅРёС†Сѓ
 				player_data[id][PLAYER_STATSLAST][i] = stats[i]
 				
 				if(diffstats[i])
 				{
-					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %d",
 						!to_save ? " " : ",",
 						row_names[i + ROW_KILLS],
 						row_names[i + ROW_KILLS],
@@ -1030,15 +1074,15 @@ DB_SavePlayerData(id,bool:reload = false)
 				}
 			}
 			
-			// обновляем по разнице с предедущими данными
+			// РѕР±РЅРѕРІР»СЏРµРј РїРѕ СЂР°Р·РЅРёС†Рµ СЃ РїСЂРµРґРµРґСѓС‰РёРјРё РґР°РЅРЅС‹РјРё
 			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
 			{
-				diffstats2[i] = stats2[i] - player_data[id][PLAYER_STATS2LAST][i] // узнаем разницу
+				diffstats2[i] = stats2[i] - player_data[id][PLAYER_STATS2LAST][i] // СѓР·РЅР°РµРј СЂР°Р·РЅРёС†Сѓ
 				player_data[id][PLAYER_STATS2LAST][i] = stats2[i]
 				
 				if(diffstats2[i])
 				{
-					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %d",
 						!to_save ? " " : ",",
 						row_names[i + ROW_BOMBDEF],
 						row_names[i + ROW_BOMBDEF],
@@ -1059,7 +1103,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			if(diffonline)
 			{
-				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %d",
 					!to_save ? " " : ",",
 					row_names[ROW_ONLINETIME],
 					row_names[ROW_ONLINETIME],
@@ -1069,12 +1113,27 @@ DB_SavePlayerData(id,bool:reload = false)
 				to_save ++
 			}
 			
+			new Float:diffskill = player_data[id][PLAYER_SKILL] - player_data[id][PLAYER_SKILLLAST]
+			player_data[id][PLAYER_SKILLLAST] = _:player_data[id][PLAYER_SKILL]
+			
+			if(diffskill != 0.0)
+			{
+				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %.2f",
+					!to_save ? " " : ",",
+					row_names[ROW_SKILL],
+					row_names[ROW_SKILL],
+					diffskill
+				)
+					
+				to_save ++
+			}
+			
 			if(stats[STATS_HITS])
 			{
-				// запрос на сохранение мест попаданий
+				// Р·Р°РїСЂРѕСЃ РЅР° СЃРѕС…СЂР°РЅРµРЅРёРµ РјРµСЃС‚ РїРѕРїР°РґР°РЅРёР№
 				for(i = 0; i < sizeof player_data[][PLAYER_HITS] ; i++)
 				{
-					diffhits[i] = hits[i] - player_data[id][PLAYER_HITSLAST][i] // узнаем разницу
+					diffhits[i] = hits[i] - player_data[id][PLAYER_HITSLAST][i] // СѓР·РЅР°РµРј СЂР°Р·РЅРёС†Сѓ
 					player_data[id][PLAYER_HITSLAST][i] = hits[i]
 					
 					if(diffhits[i])
@@ -1087,22 +1146,29 @@ DB_SavePlayerData(id,bool:reload = false)
 				}
 			}
 			
-			// обновляем время последнего подключения, ник, ип и steamid
+			// РѕР±РЅРѕРІР»СЏРµРј РІСЂРµРјСЏ РїРѕСЃР»РµРґРЅРµРіРѕ РїРѕРґРєР»СЋС‡РµРЅРёСЏ, РЅРёРє, РёРї Рё steamid
 			len += formatex(query[len],charsmax(query) - len,",\
 				`last_join` = CURRENT_TIMESTAMP(),\
 				`%s` = '%s',\
-				`%s` = '%s',\
-				`%s` = '%s'\
-				WHERE `%s` = '%d'",
+				`%s` = '%s'",
+				
 				
 				row_names[ROW_STEAMID],steamid,
-				row_names[ROW_NAME],name,
 				row_names[ROW_IP],ip,
 				
 				row_names[ROW_ID],player_data[id][PLAYER_ID]
 			)
 			
-			if(!to_save) // нечего сохранять
+			if(!reload) // РЅРµ РѕР±РЅРѕРІР»СЏРµРј РЅРёРє РїСЂРё РµРіРѕ СЃРјРµРЅРµ
+			{
+				len += formatex(query[len],charsmax(query) - len,",`%s` = '%s'",
+					row_names[ROW_NAME],name
+				)
+			}
+			
+			len += formatex(query[len],charsmax(query) - len,"WHERE `%s` = '%d'",row_names[ROW_ID],player_data[id][PLAYER_ID])
+			
+			if(!to_save) // РЅРµС‡РµРіРѕ СЃРѕС…СЂР°РЅСЏС‚СЊ
 			{
 				if(player_data[id][PLAYER_LOADSTATE] == LOAD_UPDATE)
 				{
@@ -1133,18 +1199,26 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			
 		}
-		case LOAD_NEW: // запрос на добавление новой записи
+		case LOAD_NEW: // Р·Р°РїСЂРѕСЃ РЅР° РґРѕР±Р°РІР»РµРЅРёРµ РЅРѕРІРѕР№ Р·Р°РїРёСЃРё
 		{
 			sql_data[0] = SQL_INSERT
 			
-			formatex(query,charsmax(query),"SET NAMES `utf8`;INSERT INTO `%s` \
-							(`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`)\
-							VALUES('%s','%s','%s','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d',CURRENT_TIMESTAMP())\
+			new Float:skill
+			
+			switch(get_pcvar_num(cvar[CVAR_SKILLFORMULA]))
+			{
+				case 0: skill = 100.0
+			}
+			
+			formatex(query,charsmax(query),"INSERT INTO `%s` \
+							(`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`)\
+							VALUES('%s','%s','%s','%.2f','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d',CURRENT_TIMESTAMP())\
 							",tbl_name,
 							
 					row_names[ROW_STEAMID],
 					row_names[ROW_NAME],
 					row_names[ROW_IP],
+					row_names[ROW_SKILL],
 					row_names[ROW_KILLS],
 					row_names[ROW_DEATHS],
 					row_names[ROW_HS],
@@ -1158,7 +1232,7 @@ DB_SavePlayerData(id,bool:reload = false)
 					row_names[ROW_BOMBEXPLOSIONS],
 					row_names[ROW_LASTJOIN],
 					
-					steamid,name,ip,
+					steamid,name,ip,skill,
 					
 					stats[STATS_KILLS] - player_data[id][PLAYER_STATSLAST][STATS_KILLS],
 					stats[STATS_DEATHS] - player_data[id][PLAYER_STATSLAST][STATS_DEATHS],
@@ -1214,7 +1288,7 @@ DB_SavePlayerData(id,bool:reload = false)
 #define falos false
 
 /*
-* получение новых позиции в топе игроков
+* РїРѕР»СѓС‡РµРЅРёРµ РЅРѕРІС‹С… РїРѕР·РёС†РёРё РІ С‚РѕРїРµ РёРіСЂРѕРєРѕРІ
 */
 public DB_GetPlayerRanks()
 {
@@ -1224,7 +1298,7 @@ public DB_GetPlayerRanks()
 	new query[QUERY_LENGTH],len,tbl_name[32]
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	
-	// строим SQL запрос
+	// СЃС‚СЂРѕРёРј SQL Р·Р°РїСЂРѕСЃ
 	len += formatex(query[len],charsmax(query) - len,"SELECT `id`,(")
 	len += DB_QueryBuildScore(query[len],charsmax(query) - len)
 	len += formatex(query[len],charsmax(query) - len,") FROM `%s` as `a` WHERE `id` IN(",tbl_name)
@@ -1253,7 +1327,7 @@ public DB_GetPlayerRanks()
 }
 
 /*
-* сохранение статистики всех игроков
+* СЃРѕС…СЂР°РЅРµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё РІСЃРµС… РёРіСЂРѕРєРѕРІ
 */
 public DB_SaveAll()
 {
@@ -1268,11 +1342,11 @@ public DB_SaveAll()
 
 
 /*
-* запрос на просчет ранка
+* Р·Р°РїСЂРѕСЃ РЅР° РїСЂРѕСЃС‡РµС‚ СЂР°РЅРєР°
 */
 DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
 {
-	// стандартная формула csstats (убийства-смерти-tk)
+	// СЃС‚Р°РЅРґР°СЂС‚РЅР°СЏ С„РѕСЂРјСѓР»Р° csstats (СѓР±РёР№СЃС‚РІР°-СЃРјРµСЂС‚Рё-tk)
 	
 	if(only_rows)
 	{
@@ -1280,6 +1354,7 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
 		{
 			case 1: return formatex(sql_que,sql_que_len,"`kills`")
 			case 2: return formatex(sql_que,sql_que_len,"`kills`+`hs`")
+			case 3: return formatex(sql_que,sql_que_len,"`skill`")
 			default: return formatex(sql_que,sql_que_len,"`kills`-`deaths`-`tks`")
 		}
 	}
@@ -1292,6 +1367,7 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
 		{
 			case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills)>=(a.kills)",tbl_name)
 			case 2: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills+hs)>=(a.kills+a.hs)",tbl_name)
+			case 3: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (skill)>=(a.skill)",tbl_name)
 			default: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)",tbl_name)
 		}
 	
@@ -1302,7 +1378,7 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
 }
 
 /*
-* запрос на общее кол-во записей в БД
+* Р·Р°РїСЂРѕСЃ РЅР° РѕР±С‰РµРµ РєРѕР»-РІРѕ Р·Р°РїРёСЃРµР№ РІ Р‘Р”
 */ 
 DB_QueryBuildStatsnum(sql_que[] = "",sql_que_len = 0)
 {
@@ -1313,25 +1389,25 @@ DB_QueryBuildStatsnum(sql_que[] = "",sql_que_len = 0)
 }
 
 /*
-* запрос на выборку статистики по позиции
-*	index - начальная позиция
-*	index_count - кол-во выбираемых записей
+* Р·Р°РїСЂРѕСЃ РЅР° РІС‹Р±РѕСЂРєСѓ СЃС‚Р°С‚РёСЃС‚РёРєРё РїРѕ РїРѕР·РёС†РёРё
+*	index - РЅР°С‡Р°Р»СЊРЅР°СЏ РїРѕР·РёС†РёСЏ
+*	index_count - РєРѕР»-РІРѕ РІС‹Р±РёСЂР°РµРјС‹С… Р·Р°РїРёСЃРµР№
 */
 DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 {
 	new tbl_name[32]
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	
-	// строим запрос
+	// СЃС‚СЂРѕРёРј Р·Р°РїСЂРѕСЃ
 	len += formatex(query[len],query_max-len,"SELECT *")
 	
-	// запрос на ранк
+	// Р·Р°РїСЂРѕСЃ РЅР° СЂР°РЅРє
 	len += formatex(query[len],query_max-len,",(")
 	len += DB_QueryBuildScore(query[len],query_max-len,true)
 	len += formatex(query[len],query_max-len,") as `rank`")
 	
-	// запрашиваем следующию запись
-	// если есть, то возврашаем нативом index + 1
+	// Р·Р°РїСЂР°С€РёРІР°РµРј СЃР»РµРґСѓСЋС‰РёСЋ Р·Р°РїРёСЃСЊ
+	// РµСЃР»Рё РµСЃС‚СЊ, С‚Рѕ РІРѕР·РІСЂР°С€Р°РµРј РЅР°С‚РёРІРѕРј index + 1
 	len += formatex(query[len],query_max-len," FROM `%s` as `a` ORDER BY `rank` DESC LIMIT %d,%d",
 		tbl_name,index,index_count
 	)
@@ -1340,7 +1416,7 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 }
 
 /*
-* чтение результата get_stats запроса
+* С‡С‚РµРЅРёРµ СЂРµР·СѓР»СЊС‚Р°С‚Р° get_stats Р·Р°РїСЂРѕСЃР°
 */
 DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len = 0,stats[8] = 0,hits[8] = 0,stats2[4] = 0,&stats_count = 0,index)
 {
@@ -1377,7 +1453,7 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 		
 	}
 	
-	// кеширование данных
+	// РєРµС€РёСЂРѕРІР°РЅРёРµ РґР°РЅРЅС‹С…
 	new stats_cache[stats_cache_struct]
 	
 	if(!stats_cache_trie)
@@ -1399,12 +1475,13 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 	}
 	
 	stats_cache[CACHE_LAST] = SQL_NumResults(sqlQue) <= 1
+	SQL_ReadResult(sqlQue,ROW_SKILL,stats_cache[CACHE_SKILL])
 	
 	new index_str[10]
 	num_to_str(index,index_str,charsmax(index_str))
 	
 	TrieSetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct)
-	// кешироавние данных
+	// РєРµС€РёСЂРѕР°РІРЅРёРµ РґР°РЅРЅС‹С…
 	
 	SQL_NextRow(sqlQue)
 	
@@ -1412,7 +1489,7 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 }
 
 /*
-* обновляем кеш для get_stats
+* РѕР±РЅРѕРІР»СЏРµРј РєРµС€ РґР»СЏ get_stats
 */
 Cache_Stats_Update()
 {
@@ -1425,23 +1502,23 @@ Cache_Stats_Update()
 }
 
 /*
-* обработка ответов на SQL запросы
+* РѕР±СЂР°Р±РѕС‚РєР° РѕС‚РІРµС‚РѕРІ РЅР° SQL Р·Р°РїСЂРѕСЃС‹
 */
 public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
-	// есть ошибки
+	// РµСЃС‚СЊ РѕС€РёР±РєРё
 	switch(failstate)
 	{
-		case TQUERY_CONNECT_FAILED:  // ошибка соединения с mysql сервером
+		case TQUERY_CONNECT_FAILED:  // РѕС€РёР±РєР° СЃРѕРµРґРёРЅРµРЅРёСЏ СЃ mysql СЃРµСЂРІРµСЂРѕРј
 		{
 			log_amx("MySQL connection failed")
 			log_amx("[ %d ] %s",errNum,err)
 			
 			return PLUGIN_HANDLED
 		}
-		case TQUERY_QUERY_FAILED:  // ошибка SQL запроса
+		case TQUERY_QUERY_FAILED:  // РѕС€РёР±РєР° SQL Р·Р°РїСЂРѕСЃР°
 		{
 			new lastQue[QUERY_LENGTH]
-			SQL_GetQueryString(sqlQue,lastQue,charsmax(lastQue)) // узнаем последний SQL запрос
+			SQL_GetQueryString(sqlQue,lastQue,charsmax(lastQue)) // СѓР·РЅР°РµРј РїРѕСЃР»РµРґРЅРёР№ SQL Р·Р°РїСЂРѕСЃ
 			
 			log_amx("MySQL query failed")
 			log_amx("[ %d ] %s",errNum,err)
@@ -1453,7 +1530,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 	
 	switch(data[0])
 	{
-		case SQL_LOAD: // загрзука статистики игрока
+		case SQL_LOAD: // Р·Р°РіСЂР·СѓРєР° СЃС‚Р°С‚РёСЃС‚РёРєРё РёРіСЂРѕРєР°
 		{
 			new id = data[1]
 		
@@ -1462,12 +1539,12 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				return PLUGIN_HANDLED
 			}
 			
-			if(SQL_NumResults(sqlQue)) // считываем статистику
+			if(SQL_NumResults(sqlQue)) // СЃС‡РёС‚С‹РІР°РµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ
 			{
 				player_data[id][PLAYER_LOADSTATE] = LOAD_OK
 				player_data[id][PLAYER_ID] = SQL_ReadResult(sqlQue,ROW_ID)
 				
-				// общая статистика
+				// РѕР±С‰Р°СЏ СЃС‚Р°С‚РёСЃС‚РёРєР°
 				player_data[id][PLAYER_STATS][STATS_KILLS] = SQL_ReadResult(sqlQue,ROW_KILLS)
 				player_data[id][PLAYER_STATS][STATS_DEATHS] = SQL_ReadResult(sqlQue,ROW_DEATHS)
 				player_data[id][PLAYER_STATS][STATS_HS] = SQL_ReadResult(sqlQue,ROW_HS)
@@ -1476,34 +1553,38 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				player_data[id][PLAYER_STATS][STATS_HITS] = SQL_ReadResult(sqlQue,ROW_HITS)
 				player_data[id][PLAYER_STATS][STATS_DMG] = SQL_ReadResult(sqlQue,ROW_DMG)
 				
-				// статистика cstrike
+				// СЃС‚Р°С‚РёСЃС‚РёРєР° cstrike
 				player_data[id][PLAYER_STATS2][STATS2_DEFAT] = SQL_ReadResult(sqlQue,ROW_BOMBDEF)
 				player_data[id][PLAYER_STATS2][STATS2_DEFOK] = SQL_ReadResult(sqlQue,ROW_BOMBDEFUSED)
 				player_data[id][PLAYER_STATS2][STATS2_PLAAT] = SQL_ReadResult(sqlQue,ROW_BOMBPLANTS)
 				player_data[id][PLAYER_STATS2][STATS2_PLAOK] = SQL_ReadResult(sqlQue,ROW_BOMBEXPLOSIONS)
 				
-				// время онлайн
+				// РІСЂРµРјСЏ РѕРЅР»Р°Р№РЅ
 				player_data[id][PLAYER_ONLINE] = player_data[id][PLAYER_ONLINELAST] = SQL_ReadResult(sqlQue,ROW_ONLINETIME)
 				
-				// доп. запросы
-				player_data[id][PLAYER_RANK] = SQL_ReadResult(sqlQue,row_ids)	// ранк игрока
-				statsnum = SQL_ReadResult(sqlQue,row_ids + 1)			// общее кол-во игроков в БД
+				// СЃРєРёР»Р»
+				SQL_ReadResult(sqlQue,ROW_SKILL,player_data[id][PLAYER_SKILL])
+				player_data[id][PLAYER_SKILLLAST] = _:player_data[id][PLAYER_SKILL]
 				
-				// статистика попаданий
+				// РґРѕРї. Р·Р°РїСЂРѕСЃС‹
+				player_data[id][PLAYER_RANK] = SQL_ReadResult(sqlQue,row_ids)	// СЂР°РЅРє РёРіСЂРѕРєР°
+				statsnum = SQL_ReadResult(sqlQue,row_ids + 1)			// РѕР±С‰РµРµ РєРѕР»-РІРѕ РёРіСЂРѕРєРѕРІ РІ Р‘Р”
+				
+				// СЃС‚Р°С‚РёСЃС‚РёРєР° РїРѕРїР°РґР°РЅРёР№
 				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 				{
 					player_data[id][PLAYER_HITS][i] = SQL_ReadResult(sqlQue,ROW_H0 + i)
 				}
 				
 			}
-			else // помечаем как нового игрока
+			else // РїРѕРјРµС‡Р°РµРј РєР°Рє РЅРѕРІРѕРіРѕ РёРіСЂРѕРєР°
 			{
 				player_data[id][PLAYER_LOADSTATE] = LOAD_NEW
 				
-				DB_SavePlayerData(id) // добавляем запись в базу данных
+				DB_SavePlayerData(id) // РґРѕР±Р°РІР»СЏРµРј Р·Р°РїРёСЃСЊ РІ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…
 			}
 		}
-		case SQL_INSERT:	// запись новых данных
+		case SQL_INSERT:	// Р·Р°РїРёСЃСЊ РЅРѕРІС‹С… РґР°РЅРЅС‹С…
 		{
 			new id = data[1]
 			
@@ -1517,25 +1598,24 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					return PLUGIN_HANDLED
 				}
 				
-				player_data[id][PLAYER_ID] = SQL_GetInsertId(sqlQue)	// первичный ключ
-				player_data[id][PLAYER_LOADSTATE] = LOAD_OK		// данные загружены
+				player_data[id][PLAYER_ID] = SQL_GetInsertId(sqlQue)	// РїРµСЂРІРёС‡РЅС‹Р№ РєР»СЋС‡
+				player_data[id][PLAYER_LOADSTATE] = LOAD_OK		// РґР°РЅРЅС‹Рµ Р·Р°РіСЂСѓР¶РµРЅС‹
 				
+				// СЏ СѓРїСЂР»СЃСЏ 0)0)0
 				
-				// я упрлся 0)0)0
-				
-				// сравниваем статистику
+				// СЃСЂР°РІРЅРёРІР°РµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ
 				for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
 				{
 					player_data[id][PLAYER_STATS][i] = data[2 + i]
 				}
 				
-				// статистика по попаданиям
+				// СЃС‚Р°С‚РёСЃС‚РёРєР° РїРѕ РїРѕРїР°РґР°РЅРёСЏРј
 				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 				{
 					player_data[id][PLAYER_HITS][i] = data[2 + i + sizeof player_data[][PLAYER_STATS]]
 				}
 				
-				// пииздец
+				// РїРёРёР·РґРµС†
 				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
 				{
 					player_data[id][PLAYER_STATS2][i] = data[
@@ -1543,36 +1623,42 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					]
 				}
 				
-				// обновляем счетчик общего кол-ва записей
+				// РґРµС„РѕР»С‚РЅРѕРµ Р·РЅР°С‡РµРЅРёРµ РґР»СЏ СЃРєРёР»Р»Р°
+				switch(get_pcvar_num(cvar[CVAR_SKILLFORMULA]))
+				{
+					case 0: player_data[id][PLAYER_SKILL] = _:player_data[id][PLAYER_SKILLLAST] = _:100.0
+				}
+				
+				// РѕР±РЅРѕРІР»СЏРµРј СЃС‡РµС‚С‡РёРє РѕР±С‰РµРіРѕ РєРѕР»-РІР° Р·Р°РїРёСЃРµР№
 				statsnum++
 			}
 			
-			// обновляем позици игроков
-			// действие с задержкой, что-бы учесть изменения при множественном обновлении данных
+			// РѕР±РЅРѕРІР»СЏРµРј РїРѕР·РёС†Рё РёРіСЂРѕРєРѕРІ
+			// РґРµР№СЃС‚РІРёРµ СЃ Р·Р°РґРµСЂР¶РєРѕР№, С‡С‚Рѕ-Р±С‹ СѓС‡РµСЃС‚СЊ РёР·РјРµРЅРµРЅРёСЏ РїСЂРё РјРЅРѕР¶РµСЃС‚РІРµРЅРЅРѕРј РѕР±РЅРѕРІР»РµРЅРёРё РґР°РЅРЅС‹С…
 			if(!task_exists(task_rankupdate))
 			{
 				set_task(1.0,"DB_GetPlayerRanks",task_rankupdate)
 			}
 		}
-		case SQL_UPDATE: // обновление данных
+		case SQL_UPDATE: // РѕР±РЅРѕРІР»РµРЅРёРµ РґР°РЅРЅС‹С…
 		{
 			new id = data[1]
 			
 			if(is_user_connected(id))
 			{	
-				// сравниваем статистику
+				// СЃСЂР°РІРЅРёРІР°РµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ
 				for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
 				{
 					player_data[id][PLAYER_STATS][i] += data[2 + i]
 				}
 				
-				// сравниваем статистику
+				// СЃСЂР°РІРЅРёРІР°РµРј СЃС‚Р°С‚РёСЃС‚РёРєСѓ
 				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 				{
 					player_data[id][PLAYER_HITS][i] += data[2 + i + sizeof player_data[][PLAYER_STATS]]
 				}
 				
-				// пииздец
+				// РїРёРёР·РґРµС†
 				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
 				{
 					player_data[id][PLAYER_STATS2][i] += data[
@@ -1587,8 +1673,8 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				}
 			}
 			
-			// обновляем позици игроков
-			// действие с задержкой, что-бы учесть изменения при множественном обновлении данных
+			// РѕР±РЅРѕРІР»СЏРµРј РїРѕР·РёС†Рё РёРіСЂРѕРєРѕРІ
+			// РґРµР№СЃС‚РІРёРµ СЃ Р·Р°РґРµСЂР¶РєРѕР№, С‡С‚Рѕ-Р±С‹ СѓС‡РµСЃС‚СЊ РёР·РјРµРЅРµРЅРёСЏ РїСЂРё РјРЅРѕР¶РµСЃС‚РІРµРЅРЅРѕРј РѕР±РЅРѕРІР»РµРЅРёРё РґР°РЅРЅС‹С…
 			if(!task_exists(task_rankupdate))
 			{
 				set_task(0.1,"DB_GetPlayerRanks",task_rankupdate)
@@ -1603,7 +1689,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				
 				for(new i ; i < MAX_PLAYERS ; i++)
 				{
-					if(player_data[i][PLAYER_ID] == pK)	// задаем ранк по первичному ключу
+					if(player_data[i][PLAYER_ID] == pK)	// Р·Р°РґР°РµРј СЂР°РЅРє РїРѕ РїРµСЂРІРёС‡РЅРѕРјСѓ РєР»СЋС‡Сѓ
 					{
 						player_data[i][PLAYER_RANK] = rank
 					}
@@ -1614,7 +1700,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			
 			Cache_Stats_Update()
 		}
-		case SQL_GETSTATS: // потоковый get_stats
+		case SQL_GETSTATS: // РїРѕС‚РѕРєРѕРІС‹Р№ get_stats
 		{
 			new id = data[1]
 			
@@ -1626,12 +1712,12 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			new index = data[5]
 			new name[32],authid[30]
 			
-			// кешируем ответ
+			// РєРµС€РёСЂСѓРµРј РѕС‚РІРµС‚
 			while(DB_ReadGetStats(sqlQue,name,charsmax(name),authid,charsmax(authid),.index = index ++))
 			{
 			}
 			
-			// вызываем хандлер другого плагина
+			// РІС‹Р·С‹РІР°РµРј С…Р°РЅРґР»РµСЂ РґСЂСѓРіРѕРіРѕ РїР»Р°РіРёРЅР°
 			if(callfunc_begin_i(data[3],data[2]))
 			{
 				callfunc_push_int(id)
@@ -1706,10 +1792,52 @@ public plugin_natives()
 	register_native("get_user_stats_sql","native_get_user_stats")
 	register_native("get_stats_sql","native_get_stats")
 	register_native("get_stats_sql_thread","native_get_stats_thread")
+	register_native("get_user_skill","native_get_user_skill")
+	register_native("get_skill","native_get_skill")
 }
 
 /*
-* Добавление кастомного оружия для статистики
+* Р¤СѓРЅРєС†РёСЏ РІРѕР·СЂРІР°С‰Р°РµС‚ СЃРєРёР»Р» РёРіСЂРѕРєР°
+*
+* native get_user_skill(player,&Float:skill)
+*/
+public native_get_user_skill(plugin_id,params)
+{
+	new id = get_param(1)
+	CHECK_PLAYER(id)
+	
+	set_float_byref(2,player_data[id][PLAYER_SKILL])
+	
+	return true
+}
+
+
+/*
+* РџРѕР»СѓС‡РµРЅРёРµ СЃРєРёР»Р»Р° РїРѕ РїРѕР·РёС†РёРё
+*
+* native get_skill(index,&Float:skill)
+*/
+public native_get_skill(plugin_id,params)
+{
+	new index = get_param(1)	// РёРЅРґРµРєСЃ РІ СЃС‚Р°С‚РёСЃС‚РёРєРµ
+	
+	// РєРµС€РёСЂРѕРІР°РЅРёРµ
+	new index_str[10],stats_cache[stats_cache_struct]
+	num_to_str(index,index_str,charsmax(index_str))
+	
+	// РµСЃС‚СЊ РёРЅС„РѕСЂРјР°С†РёСЏ РІ РєРµС€Рµ
+	if(stats_cache_trie && TrieGetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct))
+	{
+		set_float_byref(2,Float:stats_cache[CACHE_SKILL])
+		return !stats_cache[CACHE_LAST] ? index + 1 : 0
+	}
+	// РєРµС€РёСЂРѕРІР°РЅРёРµ
+	
+	return 0
+}
+
+/*
+* Р”РѕР±Р°РІР»РµРЅРёРµ РєР°СЃС‚РѕРјРЅРѕРіРѕ РѕСЂСѓР¶РёСЏ РґР»СЏ СЃС‚Р°С‚РёСЃС‚РёРєРё
 *
 * native custom_weapon_add(const wpnname[], melee = 0, const logname[] = "")
 */
@@ -1723,19 +1851,19 @@ public native_custom_weapon_add(plugin_id,params)
 	new weapon_name[MAX_NAME_LENGTH],weapon_log[MAX_NAME_LENGTH],is_melee
 	get_string(1,weapon_name,charsmax(weapon_name))
 	
-	if(params >= 2) // задан флаг is_melee
+	if(params >= 2) // Р·Р°РґР°РЅ С„Р»Р°Рі is_melee
 		is_melee = get_param(2)
 		
-	if(params == 3) // указан лог код
+	if(params == 3) // СѓРєР°Р·Р°РЅ Р»РѕРі РєРѕРґ
 	{
 		get_string(3,weapon_log,charsmax(weapon_log))
 	}
-	else // копируем название оружия для лог кода
+	else // РєРѕРїРёСЂСѓРµРј РЅР°Р·РІР°РЅРёРµ РѕСЂСѓР¶РёСЏ РґР»СЏ Р»РѕРі РєРѕРґР°
 	{
 		copy(weapon_log,charsmax(weapon_log),weapon_name)
 	}
 	
-	// регистриурем
+	// СЂРµРіРёСЃС‚СЂРёСѓСЂРµРј
 	new weapon_info[WEAPON_INFO_SIZE]
 	REG_INFO(is_melee,weapon_name,weapon_info)
 	
@@ -1743,7 +1871,7 @@ public native_custom_weapon_add(plugin_id,params)
 }
 
 /*
-* Учет урона кастомного оружия
+* РЈС‡РµС‚ СѓСЂРѕРЅР° РєР°СЃС‚РѕРјРЅРѕРіРѕ РѕСЂСѓР¶РёСЏ
 *
 * native custom_weapon_dmg(weapon, att, vic, damage, hitplace = 0)
 */
@@ -1776,7 +1904,7 @@ public native_custom_weapon_dmg(plugin_id,params)
 }
 
 /*
-* Регистрация выстрела кастомного оружия
+* Р РµРіРёСЃС‚СЂР°С†РёСЏ РІС‹СЃС‚СЂРµР»Р° РєР°СЃС‚РѕРјРЅРѕРіРѕ РѕСЂСѓР¶РёСЏ
 *
 * native custom_weapon_shot(weapon, index)
 */
@@ -1794,7 +1922,7 @@ public native_custom_weapon_shot(plugin_id,params)
 }
 
 /*
-* Возвращает true, если оружие рукопашного боя
+* Р’РѕР·РІСЂР°С‰Р°РµС‚ true, РµСЃР»Рё РѕСЂСѓР¶РёРµ СЂСѓРєРѕРїР°С€РЅРѕРіРѕ Р±РѕСЏ
 *
 * native xmod_is_melee_wpn(wpnindex)
 */
@@ -1811,7 +1939,7 @@ public native_xmod_is_melee_wpn(plugin_id,params)
 }
 
 /*
-* Получение полного названия оружия
+* РџРѕР»СѓС‡РµРЅРёРµ РїРѕР»РЅРѕРіРѕ РЅР°Р·РІР°РЅРёСЏ РѕСЂСѓР¶РёСЏ
 *
 * native xmod_get_wpnname(wpnindex, name[], len)
 */
@@ -1833,7 +1961,7 @@ public native_xmod_get_wpnname(plugin_id,params)
 }
 
 /*
-* Получение лог кода для оружия
+* РџРѕР»СѓС‡РµРЅРёРµ Р»РѕРі РєРѕРґР° РґР»СЏ РѕСЂСѓР¶РёСЏ
 *
 * native xmod_get_wpnlogname(wpnindex, name[], len)
 */
@@ -1855,7 +1983,7 @@ public native_xmod_get_wpnlogname(plugin_id,params)
 }
 
 /*
-* Возврашение общего количества оружия для статистики
+* Р’РѕР·РІСЂР°С€РµРЅРёРµ РѕР±С‰РµРіРѕ РєРѕР»РёС‡РµСЃС‚РІР° РѕСЂСѓР¶РёСЏ РґР»СЏ СЃС‚Р°С‚РёСЃС‚РёРєРё
 *
 * native xmod_get_maxweapons()
 */
@@ -1870,7 +1998,7 @@ public native_get_map_objectives(plugin_id,params)
 }
 
 /*
-* Статистика за текущую сессию
+* РЎС‚Р°С‚РёСЃС‚РёРєР° Р·Р° С‚РµРєСѓС‰СѓСЋ СЃРµСЃСЃРёСЋ
 *
 * native get_user_wstats(index, wpnindex, stats[8], bodyhits[8])
 */
@@ -1894,7 +2022,7 @@ public native_get_user_wstats(plugin_id,params)
 }
 
 /*
-* Статистика за текущий раунд
+* РЎС‚Р°С‚РёСЃС‚РёРєР° Р·Р° С‚РµРєСѓС‰РёР№ СЂР°СѓРЅРґ
 *
 * native get_user_wrstats(index, wpnindex, stats[8], bodyhits[8])
 */
@@ -1926,7 +2054,7 @@ public native_get_user_wrstats(plugin_id,params)
 
 
 /*
-* Получение статистики игрока
+* РџРѕР»СѓС‡РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё РёРіСЂРѕРєР°
 *
 * native get_user_stats(index, stats[8], bodyhits[8])
 */
@@ -1936,7 +2064,7 @@ public native_get_user_stats(plugin_id,params)
 	
 	CHECK_PLAYER(id)
 	
-	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // данные отсутствуют
+	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // РґР°РЅРЅС‹Рµ РѕС‚СЃСѓС‚СЃС‚РІСѓСЋС‚
 	{
 		return 0
 	}
@@ -1948,7 +2076,7 @@ public native_get_user_stats(plugin_id,params)
 }
 
 /*
-* Статистика за текущий раунд
+* РЎС‚Р°С‚РёСЃС‚РёРєР° Р·Р° С‚РµРєСѓС‰РёР№ СЂР°СѓРЅРґ
 *
 * native get_user_rstats(index, stats[8], bodyhits[8])
 */
@@ -1967,7 +2095,7 @@ public native_get_user_rstats(plugin_id,params)
 	return (stats[STATS_DEATHS] || stats[STATS_SHOTS])
 }
 /*
-* Статистика по жертвам
+* РЎС‚Р°С‚РёСЃС‚РёРєР° РїРѕ Р¶РµСЂС‚РІР°Рј
 *
 * native get_user_vstats(index, victim, stats[8], bodyhits[8], wpnname[] = "", len = 0);
 */
@@ -2046,7 +2174,7 @@ public plugin_precache()
 }
 
 /*
-* Статистика по врагам
+* РЎС‚Р°С‚РёСЃС‚РёРєР° РїРѕ РІСЂР°РіР°Рј
 *
 * native get_user_astats(index, victim, stats[8], bodyhits[8], wpnname[] = "", len = 0);
 */
@@ -2085,7 +2213,7 @@ public native_reset_user_wstats()
 }
 
 /*
-* Возвращает общее количество записей в базе данных
+* Р’РѕР·РІСЂР°С‰Р°РµС‚ РѕР±С‰РµРµ РєРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РїРёСЃРµР№ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С…
 *
 * native get_statsnum()
 */
@@ -2095,7 +2223,7 @@ public native_get_statsnum(plugin_id,params)
 }
 
 /*
-* Получение статистик по позиции
+* РџРѕР»СѓС‡РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРє РїРѕ РїРѕР·РёС†РёРё
 *
 * native get_stats(index, stats[8], bodyhits[8], name[], len, authid[] = "", authidlen = 0);
 */
@@ -2114,13 +2242,13 @@ public native_get_stats(plugin_id,params)
 		return false
 	}
 	
-	new index = get_param(1)	// индекс в статистике
+	new index = get_param(1)	// РёРЅРґРµРєСЃ РІ СЃС‚Р°С‚РёСЃС‚РёРєРµ
 	
-	// кеширование
+	// РєРµС€РёСЂРѕРІР°РЅРёРµ
 	new index_str[10],stats_cache[stats_cache_struct]
 	num_to_str(index,index_str,charsmax(index_str))
 	
-	// есть информация в кеше
+	// РµСЃС‚СЊ РёРЅС„РѕСЂРјР°С†РёСЏ РІ РєРµС€Рµ
 	if(stats_cache_trie && TrieGetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct))
 	{
 		set_array(2,stats_cache[CACHE_STATS],sizeof stats_cache[CACHE_STATS])
@@ -2134,33 +2262,33 @@ public native_get_stats(plugin_id,params)
 		
 		return !stats_cache[CACHE_LAST] ? index + 1 : 0
 	}
-	// кеширование
+	// РєРµС€РёСЂРѕРІР°РЅРёРµ
 	
 	/*
-	* прямой запрос в БД, в случае если нету данных в кеше
+	* РїСЂСЏРјРѕР№ Р·Р°РїСЂРѕСЃ РІ Р‘Р”, РІ СЃР»СѓС‡Р°Рµ РµСЃР»Рё РЅРµС‚Сѓ РґР°РЅРЅС‹С… РІ РєРµС€Рµ
 	*/
 	
-	// открываем соединение с БД для получения актуальных данных
+	// РѕС‚РєСЂС‹РІР°РµРј СЃРѕРµРґРёРЅРµРЅРёРµ СЃ Р‘Р” РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ Р°РєС‚СѓР°Р»СЊРЅС‹С… РґР°РЅРЅС‹С…
 	if(!DB_OpenConnection())
 	{
-		return false	// ошибка открытия соединения
+		return false	// РѕС€РёР±РєР° РѕС‚РєСЂС‹С‚РёСЏ СЃРѕРµРґРёРЅРµРЅРёСЏ
 	}
 	else
 	{
-		// задание на сброс содеинения
-		// чтобы не открывать новые и успеть получить сразу несколько данных за одно соединение
+		// Р·Р°РґР°РЅРёРµ РЅР° СЃР±СЂРѕСЃ СЃРѕРґРµРёРЅРµРЅРёСЏ
+		// С‡С‚РѕР±С‹ РЅРµ РѕС‚РєСЂС‹РІР°С‚СЊ РЅРѕРІС‹Рµ Рё СѓСЃРїРµС‚СЊ РїРѕР»СѓС‡РёС‚СЊ СЃСЂР°Р·Сѓ РЅРµСЃРєРѕР»СЊРєРѕ РґР°РЅРЅС‹С… Р·Р° РѕРґРЅРѕ СЃРѕРµРґРёРЅРµРЅРёРµ
 		if(!task_exists(task_confin))
 		{
 			set_task(0.1,"DB_CloseConnection",task_confin)
 		}
 	}
 	
-	// подготавливаем запрос в БД
+	// РїРѕРґРіРѕС‚Р°РІР»РёРІР°РµРј Р·Р°РїСЂРѕСЃ РІ Р‘Р”
 	new query[QUERY_LENGTH]
 	DB_QueryBuildGetstats(query,charsmax(query),.index = index)
 	new Handle:sqlQue = SQL_PrepareQuery(sql_con,query)
 	
-	// ошибка выполнения запроса
+	// РѕС€РёР±РєР° РІС‹РїРѕР»РЅРµРЅРёСЏ Р·Р°РїСЂРѕСЃР°
 	if(!SQL_Execute(sqlQue))
 	{
 		new errNum,err[256]
@@ -2175,7 +2303,7 @@ public native_get_stats(plugin_id,params)
 		return 0
 	}
 	
-	// читаем результат
+	// С‡РёС‚Р°РµРј СЂРµР·СѓР»СЊС‚Р°С‚
 	new name[32],steamid[30],stats[8],hits[8],stats2[4],stats_count
 		
 	DB_ReadGetStats(sqlQue,
@@ -2188,7 +2316,7 @@ public native_get_stats(plugin_id,params)
 		index
 	)
 	
-	// статистики нет
+	// СЃС‚Р°С‚РёСЃС‚РёРєРё РЅРµС‚
 	if(!stats_count)
 	{
 		return false
@@ -2196,7 +2324,7 @@ public native_get_stats(plugin_id,params)
 	
 	SQL_FreeHandle(sqlQue)
 	
-	// возвращаем данные натива
+	// РІРѕР·РІСЂР°С‰Р°РµРј РґР°РЅРЅС‹Рµ РЅР°С‚РёРІР°
 	set_array(2,stats,sizeof player_data[][PLAYER_STATS])
 	set_array(3,hits,sizeof player_data[][PLAYER_HITS])
 	set_string(4,name,get_param(5))
@@ -2210,11 +2338,11 @@ public native_get_stats(plugin_id,params)
 }
 
 /*
-* Потоковый запрос на получение статистик по позиции
-*	id - для кого мы запрашиваем
-*	position - позиция
-*	top - кол-во
-*	callback[] - хандлер ответа
+* РџРѕС‚РѕРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ РЅР° РїРѕР»СѓС‡РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРє РїРѕ РїРѕР·РёС†РёРё
+*	id - РґР»СЏ РєРѕРіРѕ РјС‹ Р·Р°РїСЂР°С€РёРІР°РµРј
+*	position - РїРѕР·РёС†РёСЏ
+*	top - РєРѕР»-РІРѕ
+*	callback[] - С…Р°РЅРґР»РµСЂ РѕС‚РІРµС‚Р°
 *
 * native get_stats_sql_thread(id,position,top,callback[]);
 */
@@ -2265,7 +2393,7 @@ public native_get_stats_thread(plugin_id,params)
 
 /*
 *
-* ВСЯКАЯ ХРЕНЬ ДЛЯ САМОСТОЯТЕЛЬНОГО ПРОСЧЕТА СТАТИСТИКИ
+* Р’РЎРЇРљРђРЇ РҐР Р•РќР¬ Р”Р›РЇ РЎРђРњРћРЎРўРћРЇРўР•Р›Р¬РќРћР“Рћ РџР РћРЎР§Р•РўРђ РЎРўРђРўРРЎРўРРљР
 *
 */
 
@@ -2367,7 +2495,7 @@ public DB_OpenConnection()
 	new errNum,err[256]
 	sql_con = SQL_Connect(sql,errNum,err,charsmax(err))
 	
-	#if AMXX_VERSION_NUM > 182
+	#if AMXX_VERSION_NUM >= 183
 	SQL_SetCharset(sql_con,"utf8")
 	#endif
 	
@@ -2395,7 +2523,7 @@ public native_get_user_stats2(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
+	if(!(0 < id <= MaxClients))	// РЅРµРІРµСЂРЅРѕ Р·Р°РґР°РЅ Р°Р№РґРё РёРіСЂРѕРєР°
 	{
 		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
 		

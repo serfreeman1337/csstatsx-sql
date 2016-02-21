@@ -1,13 +1,13 @@
 ALTER TABLE `csstats`
-	ADD `skill` INT NOT NULL DEFAULT '100'; AFTER `ip`,
-	ADD `h_0` INT NOT NULL  AFTER `hits_xml`,
-	ADD `h_1` INT NOT NULL  AFTER `h_0`,
-	ADD `h_2` INT NOT NULL  AFTER `h_1`,
-	ADD `h_3` INT NOT NULL  AFTER `h_2`,
-	ADD `h_4` INT NOT NULL  AFTER `h_3`,
-	ADD `h_5` INT NOT NULL  AFTER `h_4`,
-	ADD `h_6` INT NOT NULL  AFTER `h_5`,
-	ADD `h_7` INT NOT NULL  AFTER `h_6`;
+	ADD `skill` INT NOT NULL DEFAULT '0.0' AFTER `ip`,
+	ADD `h_0` INT NOT NULL AFTER `hits_xml`,
+	ADD `h_1` INT NOT NULL AFTER `h_0`,
+	ADD `h_2` INT NOT NULL AFTER `h_1`,
+	ADD `h_3` INT NOT NULL AFTER `h_2`,
+	ADD `h_4` INT NOT NULL AFTER `h_3`,
+	ADD `h_5` INT NOT NULL AFTER `h_4`,
+	ADD `h_6` INT NOT NULL AFTER `h_5`,
+	ADD `h_7` INT NOT NULL AFTER `h_6`;
 UPDATE `csstats` SET
 	`h_0` = ExtractValue(`hits_xml`,'//i[1]'),
 	`h_1` = ExtractValue(`hits_xml`,'//i[2]'),
