@@ -385,7 +385,7 @@ public plugin_cfg()
 	// запрос на создание таблицы
 	if(get_pcvar_num(cvar[CVAR_SQL_CREATE_DB]))
 	{
-		new query[QUERY_LENGTH]
+		new query[QUERY_LENGTH],que_len
 			
 		new sql_data[1]
 		sql_data[0] = SQL_DUMMY
@@ -393,7 +393,7 @@ public plugin_cfg()
 		// запрос для mysql
 		if(strcmp(type,"mysql") == 0)
 		{
-			formatex(query,charsmax(query),"\
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
 				CREATE TABLE IF NOT EXISTS `%s` (\
 					`id` int(11) NOT NULL AUTO_INCREMENT,\
 					`steamid` varchar(30) NOT NULL,\
@@ -402,8 +402,8 @@ public plugin_cfg()
 					`skill` float NOT NULL DEFAULT '0.0',\
 					`kills` int(11) NOT NULL DEFAULT '0',\
 					`deaths` int(11) NOT NULL DEFAULT '0',\
-					`hs` int(11) NOT NULL DEFAULT '0',\
-					`tks` int(11) NOT NULL DEFAULT '0',\
+					`hs` int(11) NOT NULL DEFAULT '0',",table)
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`tks` int(11) NOT NULL DEFAULT '0',\
 					`shots` int(11) NOT NULL DEFAULT '0',\
 					`hits` int(11) NOT NULL DEFAULT '0',\
 					`dmg` int(11) NOT NULL DEFAULT '0',\
@@ -411,8 +411,8 @@ public plugin_cfg()
 					`bombdefused` int(11) NOT NULL DEFAULT '0',\
 					`bombplants` int(11) NOT NULL DEFAULT '0',\
 					`bombexplosions` int(11) NOT NULL DEFAULT '0',\
-					`h_0` int(11) NOT NULL DEFAULT '0',\
-					`h_1` int(11) NOT NULL DEFAULT '0',\
+					`h_0` int(11) NOT NULL DEFAULT '0',")
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`h_1` int(11) NOT NULL DEFAULT '0',\
 					`h_2` int(11) NOT NULL DEFAULT '0',\
 					`h_3` int(11) NOT NULL DEFAULT '0',\
 					`h_4` int(11) NOT NULL DEFAULT '0',\
@@ -420,18 +420,18 @@ public plugin_cfg()
 					`h_6` int(11) NOT NULL DEFAULT '0',\
 					`h_7` int(11) NOT NULL DEFAULT '0',\
 					`connection_time` int(11) NOT NULL,\
-					`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
-					`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
+					`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,")
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
 					PRIMARY KEY (id),\
 					KEY `steamid` (`steamid`(16)),\
 					KEY `name` (`name`(16)),\
 					KEY `ip` (`ip`)\
-				) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;",table)
+				) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;")
 		}
 		// запрос для sqlite
 		else if(strcmp(type,"sqlite") == 0)
 		{
-			formatex(query,charsmax(query),"\
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
 				CREATE TABLE IF NOT EXISTS `%s` (\
 					`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,\
 					`steamid`	TEXT NOT NULL,\
@@ -439,8 +439,8 @@ public plugin_cfg()
 					`ip`	TEXT NOT NULL,\
 					`skill`	REAL NOT NULL DEFAULT 0.0,\
 					`kills`	INTEGER NOT NULL DEFAULT 0,\
-					`deaths`	INTEGER NOT NULL DEFAULT 0,\
-					`hs`	INTEGER NOT NULL DEFAULT 0,\
+					`deaths`	INTEGER NOT NULL DEFAULT 0,",table)
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`hs`	INTEGER NOT NULL DEFAULT 0,\
 					`tks`	INTEGER NOT NULL DEFAULT 0,\
 					`shots`	INTEGER NOT NULL DEFAULT 0,\
 					`hits`	INTEGER NOT NULL DEFAULT 0,\
@@ -448,19 +448,19 @@ public plugin_cfg()
 					`bombdef`	INTEGER NOT NULL DEFAULT 0,\
 					`bombdefused`	INTEGER NOT NULL DEFAULT 0,\
 					`bombplants`	INTEGER NOT NULL DEFAULT 0,\
-					`bombexplosions`	INTEGER NOT NULL DEFAULT 0,\
-					`h_0`	INTEGER NOT NULL DEFAULT 0,\
+					`bombexplosions`	INTEGER NOT NULL DEFAULT 0,")
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`h_0`	INTEGER NOT NULL DEFAULT 0,\
 					`h_1`	INTEGER NOT NULL DEFAULT 0,\
 					`h_2`	INTEGER NOT NULL DEFAULT 0,\
 					`h_3`	INTEGER NOT NULL DEFAULT 0,\
 					`h_4`	INTEGER NOT NULL DEFAULT 0,\
 					`h_5`	INTEGER NOT NULL DEFAULT 0,\
 					`h_6`	INTEGER NOT NULL DEFAULT 0,\
-					`h_7`	INTEGER NOT NULL DEFAULT 0,\
-					`connection_time`	INTEGER NOT NULL DEFAULT 0,\
+					`h_7`	INTEGER NOT NULL DEFAULT 0,")
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`connection_time`	INTEGER NOT NULL DEFAULT 0,\
 					`first_join`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
 					`last_join`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'\
-				);",table)
+				);")
 		}
 		
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
