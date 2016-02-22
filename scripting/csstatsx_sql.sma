@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5 Dev 5"
+#define VERSION "0.5"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "21, February (02), 2016"
+#define LASTUPDATE "22, February (02), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -130,7 +130,7 @@ enum _:KILL_EVENT
 	WORLDSPAWN
 }
 
-const QUERY_LENGTH =	1216	// размер переменной sql запроса
+const QUERY_LENGTH =	1472	// размер переменной sql запроса
 
 #define STATS2_DEFAT	0
 #define STATS2_DEFOK	1
@@ -184,6 +184,8 @@ enum _:cvar_set
 	CVAR_SQL_PASS,
 	CVAR_SQL_DB,
 	CVAR_SQL_TABLE,
+	CVAR_SQL_TYPE,
+	CVAR_SQL_CREATE_DB,
 	
 	CVAR_UPDATESTYLE,
 	CVAR_RANK,
@@ -281,7 +283,22 @@ public plugin_init()
 	cvar[CVAR_SQL_TABLE] = register_cvar("csstats_sql_table","csstats",FCVAR_UNLOGGED|FCVAR_PROTECTED)
 	
 	/*
+	* тип бд
+	*	mysql - база данных MySQL
+	*	sqlite - локальная база данных SQLite
+	*/
+	cvar[CVAR_SQL_TYPE] = register_cvar("csstats_sql_type","mysql")
+	
+	/*
+	* отправка запроса на создание таблицы
+	*	0 - не отправлять запрос
+	*	1 - отправлять запрос при загрузке карты
+	*/
+	cvar[CVAR_SQL_CREATE_DB] = register_cvar("csstats_sql_create_db","1")
+	
+	/*
 	* как вести учет игроков
+	*	-1			- не учитывать
 	*	0			- по нику
 	*	1			- по steamid
 	*	2			- по ip
@@ -289,7 +306,7 @@ public plugin_init()
 	cvar[CVAR_RANK] = get_cvar_pointer("csstats_rank")
 	
 	if(!cvar[CVAR_RANK])
-		cvar[CVAR_RANK] = register_cvar("csstats_rank","0")
+		cvar[CVAR_RANK] = register_cvar("csstats_rank","1")
 		
 	/*
 	* запись статистики ботов
@@ -353,13 +370,101 @@ public plugin_cfg()
 	server_exec()
 	
 	// читаем квары на подключение
-	new host[128],user[64],pass[64],db[64]
+	new host[128],user[64],pass[64],db[64],table[30],type[10]
 	get_pcvar_string(cvar[CVAR_SQL_HOST],host,charsmax(host))
 	get_pcvar_string(cvar[CVAR_SQL_USER],user,charsmax(user))
 	get_pcvar_string(cvar[CVAR_SQL_PASS],pass,charsmax(pass))
 	get_pcvar_string(cvar[CVAR_SQL_DB],db,charsmax(db))
+	get_pcvar_string(cvar[CVAR_SQL_TABLE],table,charsmax(table))
+	get_pcvar_string(cvar[CVAR_SQL_TYPE],type,charsmax(type))
+	
+	SQL_SetAffinity(type)
 	
 	sql = SQL_MakeDbTuple(host,user,pass,db)
+	
+	// запрос на создание таблицы
+	if(get_pcvar_num(cvar[CVAR_SQL_CREATE_DB]))
+	{
+		new query[QUERY_LENGTH]
+			
+		new sql_data[1]
+		sql_data[0] = SQL_DUMMY
+		
+		// запрос для mysql
+		if(strcmp(type,"mysql") == 0)
+		{
+			formatex(query,charsmax(query),"\
+				CREATE TABLE IF NOT EXISTS `%s` (\
+					`id` int(11) NOT NULL AUTO_INCREMENT,\
+					`steamid` varchar(30) NOT NULL,\
+					`name` varchar(32) NOT NULL,\
+					`ip` varchar(16) NOT NULL,\
+					`skill` float NOT NULL DEFAULT '0.0',\
+					`kills` int(11) NOT NULL DEFAULT '0',\
+					`deaths` int(11) NOT NULL DEFAULT '0',\
+					`hs` int(11) NOT NULL DEFAULT '0',\
+					`tks` int(11) NOT NULL DEFAULT '0',\
+					`shots` int(11) NOT NULL DEFAULT '0',\
+					`hits` int(11) NOT NULL DEFAULT '0',\
+					`dmg` int(11) NOT NULL DEFAULT '0',\
+					`bombdef` int(11) NOT NULL DEFAULT '0',\
+					`bombdefused` int(11) NOT NULL DEFAULT '0',\
+					`bombplants` int(11) NOT NULL DEFAULT '0',\
+					`bombexplosions` int(11) NOT NULL DEFAULT '0',\
+					`h_0` int(11) NOT NULL DEFAULT '0',\
+					`h_1` int(11) NOT NULL DEFAULT '0',\
+					`h_2` int(11) NOT NULL DEFAULT '0',\
+					`h_3` int(11) NOT NULL DEFAULT '0',\
+					`h_4` int(11) NOT NULL DEFAULT '0',\
+					`h_5` int(11) NOT NULL DEFAULT '0',\
+					`h_6` int(11) NOT NULL DEFAULT '0',\
+					`h_7` int(11) NOT NULL DEFAULT '0',\
+					`connection_time` int(11) NOT NULL,\
+					`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
+					`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
+					PRIMARY KEY (id),\
+					KEY `steamid` (`steamid`(16)),\
+					KEY `name` (`name`(16)),\
+					KEY `ip` (`ip`)\
+				) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;",table)
+		}
+		// запрос для sqlite
+		else if(strcmp(type,"sqlite") == 0)
+		{
+			formatex(query,charsmax(query),"\
+				CREATE TABLE IF NOT EXISTS `%s` (\
+					`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,\
+					`steamid`	TEXT NOT NULL,\
+					`name`	TEXT NOT NULL,\
+					`ip`	TEXT NOT NULL,\
+					`skill`	REAL NOT NULL DEFAULT 0.0,\
+					`kills`	INTEGER NOT NULL DEFAULT 0,\
+					`deaths`	INTEGER NOT NULL DEFAULT 0,\
+					`hs`	INTEGER NOT NULL DEFAULT 0,\
+					`tks`	INTEGER NOT NULL DEFAULT 0,\
+					`shots`	INTEGER NOT NULL DEFAULT 0,\
+					`hits`	INTEGER NOT NULL DEFAULT 0,\
+					`dmg`	INTEGER NOT NULL DEFAULT 0,\
+					`bombdef`	INTEGER NOT NULL DEFAULT 0,\
+					`bombdefused`	INTEGER NOT NULL DEFAULT 0,\
+					`bombplants`	INTEGER NOT NULL DEFAULT 0,\
+					`bombexplosions`	INTEGER NOT NULL DEFAULT 0,\
+					`h_0`	INTEGER NOT NULL DEFAULT 0,\
+					`h_1`	INTEGER NOT NULL DEFAULT 0,\
+					`h_2`	INTEGER NOT NULL DEFAULT 0,\
+					`h_3`	INTEGER NOT NULL DEFAULT 0,\
+					`h_4`	INTEGER NOT NULL DEFAULT 0,\
+					`h_5`	INTEGER NOT NULL DEFAULT 0,\
+					`h_6`	INTEGER NOT NULL DEFAULT 0,\
+					`h_7`	INTEGER NOT NULL DEFAULT 0,\
+					`connection_time`	INTEGER NOT NULL DEFAULT 0,\
+					`first_join`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
+					`last_join`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'\
+				);",table)
+		}
+		
+		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	}
 	
 	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
 	
@@ -1148,7 +1253,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			// обновляем время последнего подключения, ник, ип и steamid
 			len += formatex(query[len],charsmax(query) - len,",\
-				`last_join` = CURRENT_TIMESTAMP(),\
+				`last_join` = CURRENT_TIMESTAMP,\
 				`%s` = '%s',\
 				`%s` = '%s'",
 				
@@ -1212,7 +1317,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			formatex(query,charsmax(query),"INSERT INTO `%s` \
 							(`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`,`%s`)\
-							VALUES('%s','%s','%s','%.2f','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d',CURRENT_TIMESTAMP())\
+							VALUES('%s','%s','%s','%.2f','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d','%d',CURRENT_TIMESTAMP)\
 							",tbl_name,
 							
 					row_names[ROW_STEAMID],
@@ -1510,7 +1615,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 	{
 		case TQUERY_CONNECT_FAILED:  // ошибка соединения с mysql сервером
 		{
-			log_amx("MySQL connection failed")
+			log_amx("SQL connection failed")
 			log_amx("[ %d ] %s",errNum,err)
 			
 			return PLUGIN_HANDLED
@@ -1520,7 +1625,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			new lastQue[QUERY_LENGTH]
 			SQL_GetQueryString(sqlQue,lastQue,charsmax(lastQue)) // узнаем последний SQL запрос
 			
-			log_amx("MySQL query failed")
+			log_amx("SQL query failed")
 			log_amx("[ %d ] %s",errNum,err)
 			log_amx("[ SQL ] %s",lastQue)
 			
