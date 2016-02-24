@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5"
+#define VERSION "0.5f1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "22, February (02), 2016"
+#define LASTUPDATE "24, February (02), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -163,7 +163,11 @@ enum _:player_data_struct
 	// я не помню чо за diff и last, но без этого не работает XD
 	Float:PLAYER_SKILLLAST,
 	PLAYER_ONLINEDIFF,
-	PLAYER_ONLINELAST
+	PLAYER_ONLINELAST,
+	
+	PLAYER_NAME[MAX_NAME_LENGTH * 3],
+	PLAYER_STEAMID[30],
+	PLAYER_IP[16]
 }
 
 enum _:stats_cache_struct	// кеширование для get_stats
@@ -990,13 +994,19 @@ Stats_SaveBExplode(id)
 */
 public client_infochanged(id)
 {
-	new cur_name[32],new_name[32]
+	new cur_name[MAX_NAME_LENGTH],new_name[MAX_NAME_LENGTH]
 	get_user_name(id,cur_name,charsmax(cur_name))
 	get_user_info(id,"name",new_name,charsmax(new_name))
 	
-	if(strcmp(cur_name,new_name) != 0 && get_pcvar_num(cvar[CVAR_RANK]) == 0)
+	if(strcmp(cur_name,new_name) != 0)
 	{
-		DB_SavePlayerData(id,true)
+		copy(player_data[id][PLAYER_NAME],charsmax(player_data[][PLAYER_NAME]),new_name)
+		mysql_escape_string(player_data[id][PLAYER_NAME],charsmax(player_data[][PLAYER_NAME]))
+		
+		if(get_pcvar_num(cvar[CVAR_RANK]) == 0)
+		{
+			DB_SavePlayerData(id,true)
+		}
 	}
 }
 
@@ -1046,15 +1056,11 @@ DB_LoadPlayerData(id)
 		return false
 	}
 	
-	new name[96],steamid[30],ip[16]
+	get_user_info(id,"name",player_data[id][PLAYER_NAME],charsmax(player_data[][PLAYER_NAME]))
+	mysql_escape_string(player_data[id][PLAYER_NAME],charsmax(player_data[][PLAYER_NAME]))
 	
-	// узнаем ник, ид, айпи игрока
-	//get_user_name(id,name,charsmax(name))
-	get_user_info(id,"name",name,charsmax(name))
-	get_user_authid(id,steamid,charsmax(steamid))
-	get_user_ip(id,ip,charsmax(ip),true)
-	
-	mysql_escape_string(name,charsmax(name))
+	get_user_authid(id,player_data[id][PLAYER_STEAMID],charsmax(player_data[][PLAYER_STEAMID]))
+	get_user_ip(id,player_data[id][PLAYER_IP],charsmax(player_data[][PLAYER_IP]),true)
 	
 	// формируем SQL запрос
 	new query[QUERY_LENGTH],len,sql_data[2],tbl_name[32]
@@ -1075,19 +1081,19 @@ DB_LoadPlayerData(id)
 		case 0: // статистика по нику
 		{
 			len += formatex(query[len],charsmax(query)-len," FROM `%s` AS `a` WHERE `name` = '%s'",
-				tbl_name,name
+				tbl_name,player_data[id][PLAYER_NAME]
 			)
 		}
 		case 1: // статистика по steamid
 		{
 			len += formatex(query[len],charsmax(query)-len," FROM `%s` AS `a` WHERE `steamid` = '%s'",
-				tbl_name,steamid
+				tbl_name,player_data[id][PLAYER_STEAMID]
 			)
 		}
 		case 2: // статистика по ip
 		{
 			len += formatex(query[len],charsmax(query)-len," FROM `%s` AS `a` WHERE `ip` = '%s'",
-				tbl_name,ip
+				tbl_name,player_data[id][PLAYER_IP]
 			)
 		}
 		default:
@@ -1113,7 +1119,7 @@ DB_SavePlayerData(id,bool:reload = false)
 		return false
 	}
 	
-	new name[96],steamid[30],ip[16],query[QUERY_LENGTH],i
+	new query[QUERY_LENGTH],i
 	new tbl_name[32]
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	
@@ -1124,14 +1130,6 @@ DB_SavePlayerData(id,bool:reload = false)
 	]
 	
 	sql_data[1] = id
-	
-	// узнаем ник, ид, айпи игрока
-	//get_user_name(id,name,charsmax(name))
-	get_user_info(id,"name",name,charsmax(name))
-	get_user_authid(id,steamid,charsmax(steamid))
-	get_user_ip(id,ip,charsmax(ip),true)
-	
-	mysql_escape_string(name,charsmax(name))
 	
 	new stats[8],stats2[4],hits[8]
 	get_user_wstats(id,0,stats,hits)
@@ -1258,8 +1256,8 @@ DB_SavePlayerData(id,bool:reload = false)
 				`%s` = '%s'",
 				
 				
-				row_names[ROW_STEAMID],steamid,
-				row_names[ROW_IP],ip,
+				row_names[ROW_STEAMID],player_data[id][PLAYER_STEAMID],
+				row_names[ROW_IP],player_data[id][PLAYER_IP],
 				
 				row_names[ROW_ID],player_data[id][PLAYER_ID]
 			)
@@ -1267,7 +1265,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			if(!reload) // не обновляем ник при его смене
 			{
 				len += formatex(query[len],charsmax(query) - len,",`%s` = '%s'",
-					row_names[ROW_NAME],name
+					row_names[ROW_NAME],player_data[id][PLAYER_NAME]
 				)
 			}
 			
@@ -1337,7 +1335,11 @@ DB_SavePlayerData(id,bool:reload = false)
 					row_names[ROW_BOMBEXPLOSIONS],
 					row_names[ROW_LASTJOIN],
 					
-					steamid,name,ip,skill,
+					player_data[id][PLAYER_STEAMID],
+					player_data[id][PLAYER_NAME],
+					player_data[id][PLAYER_IP],
+					
+					skill,
 					
 					stats[STATS_KILLS] - player_data[id][PLAYER_STATSLAST][STATS_KILLS],
 					stats[STATS_DEATHS] - player_data[id][PLAYER_STATSLAST][STATS_DEATHS],
@@ -2399,7 +2401,7 @@ public native_get_stats(plugin_id,params)
 		new errNum,err[256]
 		errNum = SQL_QueryError(sqlQue,err,charsmax(err))
 		
-		log_amx("MySQL query failed")
+		log_amx("SQL query failed")
 		log_amx("[ %d ] %s",errNum,err)
 		log_amx("[ SQL ] %s",query)
 		
@@ -2606,7 +2608,7 @@ public DB_OpenConnection()
 	
 	if(errNum)
 	{
-		log_amx("MySQL query failed")
+		log_amx("SQL query failed")
 		log_amx("[ %d ] %s",errNum,err)
 			
 		return false
@@ -2654,6 +2656,6 @@ mysql_escape_string(dest[],len)
 	replace_all(dest,len,"\n","\\n");
 	replace_all(dest,len,"\r","\\r");
 	replace_all(dest,len,"\x1a","\Z");
-	replace_all(dest,len,"'","\'");
-	replace_all(dest,len,"^"","\^"");
+	replace_all(dest,len,"'","''");
+	replace_all(dest,len,"^"","^"^"");
 }
