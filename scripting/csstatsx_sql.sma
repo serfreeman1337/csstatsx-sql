@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5f1"
+#define VERSION "0.5f2"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "24, February (02), 2016"
+#define LASTUPDATE "20, April (04), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -362,7 +362,6 @@ public plugin_init()
 	
 	register_event("CurWeapon","EventHook_CurWeapon","b","1=1")
 	register_event("Damage","EventHook_Damage","b","2!0")
-	register_event("DeathMsg","EventHook_DeathMsg","a")
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
@@ -610,61 +609,18 @@ public EventHook_Damage(player)
 		return PLUGIN_CONTINUE
 	}
 	
-	static weapon_id,last_hit
-	get_user_attacker(player,weapon_id,last_hit)
+	static weapon_id,last_hit,attacker
+	attacker = get_user_attacker(player,weapon_id,last_hit)
 	
 	Stats_SaveHit(dmg_inflictor,player,damage_take,weapon_id,last_hit)
 	
-	return PLUGIN_CONTINUE
-}
-
-//
-// Регистрация убийств
-//
-public EventHook_DeathMsg()
-{
-	new killer_id = read_data(1)
-	new victim_id = read_data(2)
-	
-	/*
-	* пропускаем эту проверку, т.к. в плагине все переменные обнуляются при подключении
-	if(!is_user_connected(killer_id) || !is_user_connected(victim_id))
+	if(!is_user_alive(player))
 	{
-		return PLUGIN_CONTINUE
+		if(is_user_connected(attacker))
+		{
+			Stats_SaveKill(attacker,player,weapon_id,last_hit)
+		}
 	}
-	*/
-	
-	// узнаем лог код оружия
-	new log_name[32]
-	read_data(4,log_name,charsmax(log_name))
-	
-	if(!log_name[0]) // убийство без оружия
-	{
-		return PLUGIN_CONTINUE
-	}
-	
-	new weapon_id
-	
-	// пробуем получить id оружия на основе его лог-кода
-	if(!TrieGetCell(log_ids_trie,log_name,weapon_id)) 
-	{
-		return PLUGIN_CONTINUE // убийство неизвестным оружием
-	}
-	
-	new last_hit
-	
-	if(pev_valid(victim_id) == 2)
-	{
-		// получаем hitbox смертельного попадания
-		#if AMXX_VERSION_NUM >= 183
-			last_hit = get_ent_data(victim_id,"CBaseMonster","m_LastHitGroup")
-		#else
-			#define m_LastHitGroup 75
-			last_hit = get_pdata_int(victim_id,m_LastHitGroup)
-		#endif
-	}
-
-	Stats_SaveKill(killer_id,victim_id,weapon_id,last_hit) // сохраняем
 	
 	return PLUGIN_CONTINUE
 }
