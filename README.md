@@ -70,6 +70,7 @@ native get_stats_sql(index, stats[8], bodyhits[8], name[], len, authid[] = "", a
 	* 1			- убийства
 	* 2			- убийства + хедшоты
 	* 3			- скилл
+	* 4			- время онлайн
 * **csstats_sql_skillformula** "0" - формула расчета скилла
 	* 0			- The ELO Method (http://fastcup.net/rating.html)
 
