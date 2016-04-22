@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5f2"
+#define VERSION "0.5.1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "20, April (04), 2016"
+#define LASTUPDATE "22, April (04), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -178,7 +178,11 @@ enum _:stats_cache_struct	// кеширование для get_stats
 	CACHE_NAME[32],
 	CACHE_STEAMID[30],
 	CACHE_SKILL,
-	bool:CACHE_LAST
+	bool:CACHE_LAST,
+	
+	// 0.5.1
+	CACHE_ID,
+	CACHE_TIME
 }
 
 enum _:cvar_set
@@ -344,6 +348,7 @@ public plugin_init()
 	*	1			- убийства
 	*	2			- убийства + хедшоты
 	*	3			- скилл
+	*	4			- время онлайн
 	*/
 	cvar[CVAR_RANKFORMULA] = register_cvar("csstats_sql_rankformula","0")
 	
@@ -464,6 +469,10 @@ public plugin_cfg()
 					`first_join`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
 					`last_join`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'\
 				);")
+		}
+		else
+		{
+			set_fail_state("invalid ^"csstats_sql_type^" cvar value")
 		}
 		
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
@@ -612,7 +621,10 @@ public EventHook_Damage(player)
 	static weapon_id,last_hit,attacker
 	attacker = get_user_attacker(player,weapon_id,last_hit)
 	
-	Stats_SaveHit(dmg_inflictor,player,damage_take,weapon_id,last_hit)
+	if(0 <= last_hit < HIT_END)
+	{
+		Stats_SaveHit(dmg_inflictor,player,damage_take,weapon_id,last_hit)
+	}
 	
 	if(!is_user_alive(player))
 	{
@@ -1407,17 +1419,18 @@ public DB_SaveAll()
 /*
 * запрос на просчет ранка
 */
-DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
+DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos,overide_order = 0)
 {
 	// стандартная формула csstats (убийства-смерти-tk)
 	
 	if(only_rows)
 	{
-		switch(get_pcvar_num(cvar[CVAR_RANKFORMULA]))
+		switch(overide_order ? overide_order : get_pcvar_num(cvar[CVAR_RANKFORMULA]))
 		{
 			case 1: return formatex(sql_que,sql_que_len,"`kills`")
 			case 2: return formatex(sql_que,sql_que_len,"`kills`+`hs`")
 			case 3: return formatex(sql_que,sql_que_len,"`skill`")
+			case 4: return formatex(sql_que,sql_que_len,"`connection_time`")
 			default: return formatex(sql_que,sql_que_len,"`kills`-`deaths`-`tks`")
 		}
 	}
@@ -1426,11 +1439,12 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos)
 		new tbl_name[32]
 		get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 		
-		switch(get_pcvar_num(cvar[CVAR_RANKFORMULA]))
+		switch(overide_order ? overide_order : get_pcvar_num(cvar[CVAR_RANKFORMULA]))
 		{
 			case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills)>=(a.kills)",tbl_name)
 			case 2: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills+hs)>=(a.kills+a.hs)",tbl_name)
 			case 3: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (skill)>=(a.skill)",tbl_name)
+			case 4: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (connection_time)>=(a.connection_time)")
 			default: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)",tbl_name)
 		}
 	
@@ -1456,7 +1470,7 @@ DB_QueryBuildStatsnum(sql_que[] = "",sql_que_len = 0)
 *	index - начальная позиция
 *	index_count - кол-во выбираемых записей
 */
-DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
+DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2,overide_order = 0)
 {
 	new tbl_name[32]
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
@@ -1466,7 +1480,7 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2)
 	
 	// запрос на ранк
 	len += formatex(query[len],query_max-len,",(")
-	len += DB_QueryBuildScore(query[len],query_max-len,true)
+	len += DB_QueryBuildScore(query[len],query_max-len,true,overide_order)
 	len += formatex(query[len],query_max-len,") as `rank`")
 	
 	// запрашиваем следующию запись
@@ -1539,6 +1553,8 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 	
 	stats_cache[CACHE_LAST] = SQL_NumResults(sqlQue) <= 1
 	SQL_ReadResult(sqlQue,ROW_SKILL,stats_cache[CACHE_SKILL])
+	stats_cache[CACHE_ID] = SQL_ReadResult(sqlQue,ROW_ID)
+	stats_cache[CACHE_TIME] = SQL_ReadResult(sqlQue,ROW_ONLINETIME)
 	
 	new index_str[10]
 	num_to_str(index,index_str,charsmax(index_str))
@@ -1767,7 +1783,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 		{
 			new id = data[1]
 			
-			if(!is_user_connected(id))
+			if(id && !is_user_connected(id))
 			{
 				return PLUGIN_HANDLED
 			}
@@ -1821,6 +1837,15 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 		log_error(AMX_ERR_NATIVE,"Invalid weapon id %d",%1);\
 		return 0;\
 	}
+	
+/*
+native get_skill(index,&Float:skill)
+native get_user_skill(player,&Float:skill)
+native get_user_gametime(id)
+native get_stats_gametime(index,&game_time)
+native get_user_stats_id(id)
+native get_stats_id(index,&stats_id)
+*/
 
 public plugin_natives()
 {
@@ -1850,6 +1875,8 @@ public plugin_natives()
 	register_native("custom_weapon_dmg","native_custom_weapon_dmg")
 	register_native("custom_weapon_shot","native_custom_weapon_shot")
 	
+	register_library("csstatsx_sql")
+	
 	// csstats mysql
 	register_native("get_statsnum_sql","native_get_statsnum")
 	register_native("get_user_stats_sql","native_get_user_stats")
@@ -1857,6 +1884,98 @@ public plugin_natives()
 	register_native("get_stats_sql_thread","native_get_stats_thread")
 	register_native("get_user_skill","native_get_user_skill")
 	register_native("get_skill","native_get_skill")
+	
+	// 0.5.1
+	register_native("get_user_gametime","native_get_user_gametime")
+	register_native("get_stats_gametime","native_get_stats_gametime")
+	register_native("get_user_stats_id","native_get_user_stats_id")
+	register_native("get_stats_id","native_get_stats_id")
+	register_native("update_stats_cache","native_update_stats_cache")
+}
+
+public native_update_stats_cache()
+{
+	return Cache_Stats_Update()
+}
+
+/*
+* Функция возвращает онлайн время игрока
+*
+* native get_user_gametime(id)
+*/
+public native_get_user_gametime(plugin_id,params)
+{
+	new id = get_param(1)
+	CHECK_PLAYER(id)
+	
+	if(player_data[id][PLAYER_LOADSTATE] == LOAD_NO)
+	{
+		return -1
+	}
+	
+	return player_data[id][PLAYER_ONLINE]
+}
+
+/*
+* Получение времени по позиции
+*
+* native get_stats_gametime(index,&game_time)
+*/
+public native_get_stats_gametime(plugin_id,params)
+{
+	new index = get_param(1)	// индекс в статистике
+	
+	// кеширование
+	new index_str[10],stats_cache[stats_cache_struct]
+	num_to_str(index,index_str,charsmax(index_str))
+	
+	// есть информация в кеше
+	if(stats_cache_trie && TrieGetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct))
+	{
+		set_param_byref(2,stats_cache[CACHE_TIME])
+		return !stats_cache[CACHE_LAST] ? index + 1 : 0
+	}
+	// кеширование
+	
+	return 0
+}
+
+
+/*
+* Функция возрващает ID игрока в БД
+*
+* native get_user_stats_id(id)
+*/
+public native_get_user_stats_id(plugin_id,params)
+{
+	new id = get_param(1)
+	CHECK_PLAYER(id)
+	
+	return player_data[id][PLAYER_ID]
+}
+
+/*
+* Получение ID по позиции
+*
+* native get_stats_id(index,&db_id)
+*/
+public native_get_stats_id(plugin_id,params)
+{
+	new index = get_param(1)	// индекс в статистике
+	
+	// кеширование
+	new index_str[10],stats_cache[stats_cache_struct]
+	num_to_str(index,index_str,charsmax(index_str))
+	
+	// есть информация в кеше
+	if(stats_cache_trie && TrieGetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct))
+	{
+		set_param_byref(2,stats_cache[CACHE_ID])
+		return !stats_cache[CACHE_LAST] ? index + 1 : 0
+	}
+	// кеширование
+	
+	return 0
 }
 
 /*
@@ -2437,7 +2556,16 @@ public native_get_stats_thread(plugin_id,params)
 	}
 	
 	new query[QUERY_LENGTH]
-	DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top)
+	
+	if(params == 5)
+	{
+		DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top,.overide_order = get_param(5))
+	}
+	else
+	{
+		DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top)
+	}
+	
 	
 	
 	new sql_data[6]
