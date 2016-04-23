@@ -12,7 +12,7 @@
 #define VERSION "0.5.1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "22, April (04), 2016"
+#define LASTUPDATE "23, April (04), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -1444,7 +1444,7 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos,overide
 			case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills)>=(a.kills)",tbl_name)
 			case 2: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills+hs)>=(a.kills+a.hs)",tbl_name)
 			case 3: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (skill)>=(a.skill)",tbl_name)
-			case 4: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (connection_time)>=(a.connection_time)")
+			case 4: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (connection_time)>=(a.connection_time)",tbl_name)
 			default: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills-deaths-tks)>=(a.kills-a.deaths-a.tks)",tbl_name)
 		}
 	
