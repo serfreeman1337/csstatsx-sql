@@ -1,5 +1,5 @@
 /*
-*	CSStatsX MySQL			  	  v. 0.5
+*	CSStatsX MySQL			  	  v. 0.6
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -8,11 +8,11 @@
 
 #include <fakemeta>
 
-#define PLUGIN "CSStatsX MySQL"
-#define VERSION "0.5.1"
+#define PLUGIN "CSStatsX SQL"
+#define VERSION "0.6"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "23, April (04), 2016"
+#define LASTUPDATE "04, May (05), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -140,6 +140,7 @@ const QUERY_LENGTH =	1472	// размер переменной sql запрос�
 
 new const task_rankupdate	=	31337
 new const task_confin		=	21337
+new const task_flush		=	11337
 
 #define MAX_CWEAPONS		6
 #define MAX_WEAPONS		CSW_P90 + 1 + MAX_CWEAPONS
@@ -206,6 +207,7 @@ enum _:cvar_set
 /* - ПЕРЕМЕННЫЕ - */
 
 new player_data[MAX_PLAYERS + 1][player_data_struct]
+new flush_que[QUERY_LENGTH * 2],flush_que_len
 new statsnum
 
 new cvar[cvar_set]
@@ -333,7 +335,7 @@ public plugin_init()
 	*	0 			- при дисконнекте
 	*	значение больше 0 	- через указанное кол-во секунд и дисконнекте
 	*/
-	cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","-2")
+	cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","0")
 	
 	/*
 	* включить собственные форварды для client_death, client_damage
@@ -550,11 +552,35 @@ public plugin_cfg()
 	REG_INFO(false,"p90","p90")
 }
 
+public plugin_end()
+{
+	// выполняем накопившиеся запросы при смене карты или выключении серваре
+	DB_FlushQuery()
+	
+	SQL_FreeHandle(sql)
+	
+	if(sql_con != Empty_Handle)
+	{
+		SQL_FreeHandle(sql_con)
+	}
+	
+	if(stats_cache_trie)
+	{
+		TrieDestroy(stats_cache_trie)
+	}
+	
+	TrieDestroy(log_ids_trie)
+	ArrayDestroy(weapons_data)
+}
+
 /*
 * загружаем статистику при подключении
 */
 public client_putinserver(id)
 {
+	reset_user_allstats(id)
+	reset_user_wstats(id)
+	
 	arrayset(player_data[id],0,player_data_struct)
 	DB_LoadPlayerData(id)
 }
@@ -569,9 +595,6 @@ public client_disconnected(id)
 #endif
 {
 	DB_SavePlayerData(id)
-	
-	reset_user_allstats(id)
-	reset_user_wstats(id)
 }
 
 //
@@ -1076,7 +1099,6 @@ DB_LoadPlayerData(id)
 	return true
 }
 
-
 /*
 * сохранение статистики игрока
 */
@@ -1087,26 +1109,17 @@ DB_SavePlayerData(id,bool:reload = false)
 		return false
 	}
 	
-	new query[QUERY_LENGTH],i
+	new query[QUERY_LENGTH],i,len
 	new tbl_name[32]
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	
-	new sql_data[2 + 					// 2
-		sizeof player_data[][PLAYER_STATS] + // 8
-		sizeof player_data[][PLAYER_HITS] + // 8
-		sizeof player_data[][PLAYER_STATS2] // 4
-	]
+	new sql_data[2]
 	
 	sql_data[1] = id
 	
 	new stats[8],stats2[4],hits[8]
 	get_user_wstats(id,0,stats,hits)
 	get_user_stats2(id,stats2)
-	
-	/*if(!stats[STATS_DEATHS] && !stats[STATS_SHOTS])
-	{
-		return false
-	}*/
 	
 	switch(player_data[id][PLAYER_LOADSTATE])
 	{
@@ -1122,7 +1135,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			new diffstats[sizeof player_data[][PLAYER_STATS]]
 			new diffstats2[sizeof player_data[][PLAYER_STATS2]]
 			new diffhits[sizeof player_data[][PLAYER_HITS]]
-			new len,to_save
+			new to_save
 			
 			len += formatex(query[len],charsmax(query) - len,"UPDATE `%s` SET",tbl_name)
 			
@@ -1180,8 +1193,8 @@ DB_SavePlayerData(id,bool:reload = false)
 					row_names[ROW_ONLINETIME],
 					diffonline
 				)
-					
-				to_save ++
+				
+				//to_save ++
 			}
 			
 			new Float:diffskill = player_data[id][PLAYER_SKILL] - player_data[id][PLAYER_SKILLLAST]
@@ -1249,26 +1262,26 @@ DB_SavePlayerData(id,bool:reload = false)
 				
 				return false
 			}
-			
-			// stats
-			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS] ; i++)
+			else
 			{
-				sql_data[i + 2] = diffstats[i]
+				//
+				// Сравниваем статистику
+				//
+				for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
+				{
+					player_data[id][PLAYER_STATS][i] += diffstats[i]
+				}
+				
+				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
+				{
+					player_data[id][PLAYER_HITS][i] += diffhits[i]
+				}
+				
+				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
+				{
+					player_data[id][PLAYER_STATS2][i] += diffstats2[i]
+				}
 			}
-			
-			// hits
-			for(i = 0 ; i < sizeof player_data[][PLAYER_HITS] ; i++)
-			{
-				sql_data[2 + i + sizeof player_data[][PLAYER_STATS]] = diffhits[i]
-			}
-			
-			// stats2
-			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
-			{
-				sql_data[2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]] = diffstats[i]
-			}
-			
-			
 		}
 		case LOAD_NEW: // запрос на добавление новой записи
 		{
@@ -1309,37 +1322,39 @@ DB_SavePlayerData(id,bool:reload = false)
 					
 					skill,
 					
-					stats[STATS_KILLS] - player_data[id][PLAYER_STATSLAST][STATS_KILLS],
-					stats[STATS_DEATHS] - player_data[id][PLAYER_STATSLAST][STATS_DEATHS],
-					stats[STATS_HS] - player_data[id][PLAYER_STATSLAST][STATS_HS],
-					stats[STATS_TK] - player_data[id][PLAYER_STATSLAST][STATS_TK],
-					stats[STATS_SHOTS] - player_data[id][PLAYER_STATSLAST][STATS_SHOTS],
-					stats[STATS_HITS] - player_data[id][PLAYER_STATSLAST][STATS_HITS],
-					stats[STATS_DMG] - player_data[id][PLAYER_STATSLAST][STATS_DMG],
+					stats[STATS_KILLS],
+					stats[STATS_DEATHS],
+					stats[STATS_HS],
+					stats[STATS_TK],
+					stats[STATS_SHOTS],
+					stats[STATS_HITS],
+					stats[STATS_DMG],
 					
-					stats2[STATS2_DEFAT] - player_data[id][PLAYER_STATS2LAST][STATS2_DEFAT],
-					stats2[STATS2_DEFOK] - player_data[id][PLAYER_STATS2LAST][STATS2_DEFOK],
-					stats2[STATS2_PLAAT] - player_data[id][PLAYER_STATS2LAST][STATS2_PLAAT],
-					stats2[STATS2_PLAOK] - player_data[id][PLAYER_STATS2LAST][STATS2_PLAOK]
+					stats2[STATS2_DEFAT],
+					stats2[STATS2_DEFOK],
+					stats2[STATS2_PLAAT],
+					stats2[STATS2_PLAOK]
 			)
 			
-			// stats
-			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS] ; i++)
+			//
+			// Сравниваем статистику
+			//
+			for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
 			{
-				sql_data[i + 2] = stats[i]
+				player_data[id][PLAYER_STATS][i] = stats[i]
 			}
-			
-			// hits
-			for(i = 0 ; i < sizeof player_data[][PLAYER_HITS] ; i++)
+				
+			for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 			{
-				sql_data[2 + i + sizeof player_data[][PLAYER_STATS]] = hits[i]
+				player_data[id][PLAYER_HITS][i] = hits[i]
 			}
-			
-			// stats2
-			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
+				
+			for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
 			{
-				sql_data[2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]] = stats2[i]
+				player_data[id][PLAYER_STATS2][i] = stats2[i]
 			}
+				
+			player_data[id][PLAYER_SKILL] = _:player_data[id][PLAYER_SKILLLAST] = _:skill
 			
 			if(reload)
 			{
@@ -1354,10 +1369,50 @@ DB_SavePlayerData(id,bool:reload = false)
 	
 	if(query[0])
 	{
+		switch(sql_data[0])
+		{
+			// накапливаем запросы 
+			case SQL_UPDATE:
+			{
+				// запросов достаточно, сбрасываем их
+				if((flush_que_len + len + 1) > charsmax(flush_que))
+				{
+					DB_FlushQuery()
+				}
+				
+				flush_que_len += formatex(
+					flush_que[flush_que_len],
+					charsmax(flush_que) - flush_que_len,
+					"%s%s",flush_que_len ? ";" : "",
+					query
+				)
+				
+				// задание на сброс накопленных запросов
+				remove_task(task_flush)
+				set_task(0.1,"DB_FlushQuery",task_flush)
+				
+				return true
+			}
+		}
+		
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 	}
 	
 	return true
+}
+
+//
+// Сброс накопленных запросов
+//
+public DB_FlushQuery()
+{
+	if(flush_que_len)
+	{
+		new sql_data[1] = SQL_UPDATE
+		SQL_ThreadQuery(sql,"SQL_Handler",flush_que,sql_data,sizeof sql_data)
+		
+		flush_que_len = 0
+	}
 }
 
 #define falos false
@@ -1682,32 +1737,6 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				
 				// я упрлся 0)0)0
 				
-				// сравниваем статистику
-				for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
-				{
-					player_data[id][PLAYER_STATS][i] = data[2 + i]
-				}
-				
-				// статистика по попаданиям
-				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
-				{
-					player_data[id][PLAYER_HITS][i] = data[2 + i + sizeof player_data[][PLAYER_STATS]]
-				}
-				
-				// пииздец
-				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
-				{
-					player_data[id][PLAYER_STATS2][i] = data[
-						2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]
-					]
-				}
-				
-				// дефолтное значение для скилла
-				switch(get_pcvar_num(cvar[CVAR_SKILLFORMULA]))
-				{
-					case 0: player_data[id][PLAYER_SKILL] = _:player_data[id][PLAYER_SKILLLAST] = _:100.0
-				}
-				
 				// обновляем счетчик общего кол-ва записей
 				statsnum++
 			}
@@ -1721,43 +1750,27 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 		}
 		case SQL_UPDATE: // обновление данных
 		{
-			new id = data[1]
-			
-			if(is_user_connected(id))
-			{	
-				// сравниваем статистику
-				for(new i ; i < sizeof player_data[][PLAYER_STATS] ; i++)
-				{
-					player_data[id][PLAYER_STATS][i] += data[2 + i]
-				}
-				
-				// сравниваем статистику
-				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
-				{
-					player_data[id][PLAYER_HITS][i] += data[2 + i + sizeof player_data[][PLAYER_STATS]]
-				}
-				
-				// пииздец
-				for(new i ; i < sizeof player_data[][PLAYER_STATS2] ; i++)
-				{
-					player_data[id][PLAYER_STATS2][i] += data[
-						2 + i + sizeof player_data[][PLAYER_STATS] + sizeof player_data[][PLAYER_HITS]
-					]
-				}
-				
-				if(player_data[id][PLAYER_LOADSTATE] == LOAD_UPDATE)
-				{
-					player_data[id][PLAYER_LOADSTATE] = LOAD_NO
-					DB_LoadPlayerData(id)
-				}
-			}
-			
 			// обновляем позици игроков
 			// действие с задержкой, что-бы учесть изменения при множественном обновлении данных
 			if(!task_exists(task_rankupdate))
 			{
 				set_task(0.1,"DB_GetPlayerRanks",task_rankupdate)
 			}
+			
+			new players[MAX_PLAYERS],pnum
+			get_players(players,pnum)
+			
+			for(new i,player ; i < pnum ; i++)
+			{
+				player = players[i]
+				
+				if(player_data[player][PLAYER_LOADSTATE] == LOAD_UPDATE)
+				{
+					player_data[player][PLAYER_LOADSTATE] = LOAD_NO
+					DB_LoadPlayerData(player)
+				}
+			}
+			
 		}
 		case SQL_UPDATERANK:
 		{
@@ -1838,15 +1851,6 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 		return 0;\
 	}
 	
-/*
-native get_skill(index,&Float:skill)
-native get_user_skill(player,&Float:skill)
-native get_user_gametime(id)
-native get_stats_gametime(index,&game_time)
-native get_user_stats_id(id)
-native get_stats_id(index,&stats_id)
-*/
-
 public plugin_natives()
 {
 	// default csstats
