@@ -1,5 +1,5 @@
 /*
-*	CSStatsX MySQL			  	  v. 0.6
+*	CSStatsX MySQL			  	  v. 0.7
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.6"
+#define VERSION "0.7 Dev 1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "04, May (05), 2016"
+#define LASTUPDATE "08, May (05), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -34,7 +34,10 @@ enum _:sql_que_type	// тип sql запроса
 	SQL_UPDATE,	// обновление
 	SQL_INSERT,	// внесение новой записи
 	SQL_UPDATERANK,	// получение ранков игроков,
-	SQL_GETSTATS	// потоквый запрос на get_stats
+	SQL_GETSTATS,	// потоквый запрос на get_stats
+	
+	// 0.7
+	SQL_GETWSTATS	// статистика по оружию
 }
 
 enum _:load_state_type	// состояние получение статистики
@@ -146,6 +149,52 @@ new const task_flush		=	11337
 #define MAX_WEAPONS		CSW_P90 + 1 + MAX_CWEAPONS
 #define HIT_END			HIT_RIGHTLEG + 1
 
+// 0.7
+
+enum _:row_weapons_ids		// столбцы таблицы
+{
+	ROW_WEAPON_ID,
+	ROW_WEAPON_PLAYER,
+	ROW_WEAPON_NAME,
+	ROW_WEAPON_KILLS,
+	ROW_WEAPON_DEATHS,
+	ROW_WEAPON_HS,
+	ROW_WEAPON_TKS,
+	ROW_WEAPON_SHOTS,
+	ROW_WEAPON_HITS,
+	ROW_WEAPON_DMG,
+	ROW_WEAPON_H0,
+	ROW_WEAPON_H1,
+	ROW_WEAPON_H2,
+	ROW_WEAPON_H3,
+	ROW_WEAPON_H4,
+	ROW_WEAPON_H5,
+	ROW_WEAPON_H6,
+	ROW_WEAPON_H7
+}
+
+new const row_weapons_names[row_weapons_ids][] = // имена столбцов
+{
+	"id",
+	"player_id",
+	"weapon",
+	"kills",
+	"deaths",
+	"hs",
+	"tks",
+	"shots",
+	"hits",
+	"dmg",
+	"h_0",
+	"h_1",
+	"h_2",
+	"h_3",
+	"h_4",
+	"h_5",
+	"h_6",
+	"h_7"
+}
+
 /* - СТРУКТУРА ДАННЫХ - */
 
 enum _:player_data_struct
@@ -201,7 +250,10 @@ enum _:cvar_set
 	CVAR_RANKFORMULA,
 	CVAR_SKILLFORMULA,
 	CVAR_RANKBOTS,
-	CVAR_USEFORWARDS
+	CVAR_USEFORWARDS,
+	
+	// 0.7
+	CVAR_WEAPONSTATS
 }
 
 /* - ПЕРЕМЕННЫЕ - */
@@ -210,9 +262,20 @@ new player_data[MAX_PLAYERS + 1][player_data_struct]
 new flush_que[QUERY_LENGTH * 2],flush_que_len
 new statsnum
 
+//
+ // Общая стата по оружию
+ //
+// 1ый STATS_END + HIT_END - текущая общая статистика по оружию игрока
+// 2ой STATS_END + HIT_END - последнее значение player_wstats, использует для расчета разницы
+// последний индекс - определяет INSERT или UPDATE для запроса
+//
+new player_awstats[MAX_PLAYERS + 1][MAX_WEAPONS][((STATS_END + HIT_END) * 2) + 1]
+
 new cvar[cvar_set]
 
 new Trie:stats_cache_trie	// дерево кеша для get_stats // ключ - ранг
+
+new tbl_name[32]
 
 /* - CSSTATS CORE - */
 
@@ -360,6 +423,13 @@ public plugin_init()
 	*/
 	cvar[CVAR_SKILLFORMULA] = register_cvar("csstats_sql_skillformula","0")
 	
+	// 0.7
+	
+	/*
+	* ведение статистики по оружию
+	*/
+	cvar[CVAR_WEAPONSTATS] = register_cvar("csstats_sql_weapons","0")
+	
 	#if AMXX_VERSION_NUM < 183
 	MaxClients = get_maxplayers()
 	#endif
@@ -380,12 +450,12 @@ public plugin_cfg()
 	server_exec()
 	
 	// читаем квары на подключение
-	new host[128],user[64],pass[64],db[64],table[30],type[10]
+	new host[128],user[64],pass[64],db[64],type[10]
 	get_pcvar_string(cvar[CVAR_SQL_HOST],host,charsmax(host))
 	get_pcvar_string(cvar[CVAR_SQL_USER],user,charsmax(user))
 	get_pcvar_string(cvar[CVAR_SQL_PASS],pass,charsmax(pass))
 	get_pcvar_string(cvar[CVAR_SQL_DB],db,charsmax(db))
-	get_pcvar_string(cvar[CVAR_SQL_TABLE],table,charsmax(table))
+	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	get_pcvar_string(cvar[CVAR_SQL_TYPE],type,charsmax(type))
 	
 	SQL_SetAffinity(type)
@@ -412,7 +482,7 @@ public plugin_cfg()
 					`skill` float NOT NULL DEFAULT '0.0',\
 					`kills` int(11) NOT NULL DEFAULT '0',\
 					`deaths` int(11) NOT NULL DEFAULT '0',\
-					`hs` int(11) NOT NULL DEFAULT '0',",table)
+					`hs` int(11) NOT NULL DEFAULT '0',",tbl_name)
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`tks` int(11) NOT NULL DEFAULT '0',\
 					`shots` int(11) NOT NULL DEFAULT '0',\
 					`hits` int(11) NOT NULL DEFAULT '0',\
@@ -449,7 +519,7 @@ public plugin_cfg()
 					`ip`	TEXT NOT NULL,\
 					`skill`	REAL NOT NULL DEFAULT 0.0,\
 					`kills`	INTEGER NOT NULL DEFAULT 0,\
-					`deaths`	INTEGER NOT NULL DEFAULT 0,",table)
+					`deaths`	INTEGER NOT NULL DEFAULT 0,",tbl_name)
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`hs`	INTEGER NOT NULL DEFAULT 0,\
 					`tks`	INTEGER NOT NULL DEFAULT 0,\
 					`shots`	INTEGER NOT NULL DEFAULT 0,\
@@ -478,6 +548,129 @@ public plugin_cfg()
 		}
 		
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+		
+		if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+		{
+			que_len = 0
+			
+			// запрос для mysql
+			if(strcmp(type,"mysql") == 0)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					CREATE TABLE IF NOT EXISTS `%s_weapons` (\
+						`%s` int(11) NOT NULL AUTO_INCREMENT,\
+						`%s` int(11) NOT NULL,\
+						`%s` varchar(32) NOT NULL,\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',",
+						
+						tbl_name,
+						row_weapons_names[ROW_WEAPON_ID],
+						row_weapons_names[ROW_WEAPON_PLAYER],
+						row_weapons_names[ROW_WEAPON_NAME],
+						row_weapons_names[ROW_WEAPON_KILLS],
+						row_weapons_names[ROW_WEAPON_DEATHS],
+						row_weapons_names[ROW_WEAPON_HS]
+				)
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',",
+						
+						row_weapons_names[ROW_WEAPON_TKS],
+						row_weapons_names[ROW_WEAPON_SHOTS],
+						row_weapons_names[ROW_WEAPON_HITS],
+						row_weapons_names[ROW_WEAPON_DMG]	
+				)
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',\
+						`%s` int(11) NOT NULL DEFAULT '0',",
+						
+						row_weapons_names[ROW_WEAPON_H0],
+						row_weapons_names[ROW_WEAPON_H1],
+						row_weapons_names[ROW_WEAPON_H2],
+						row_weapons_names[ROW_WEAPON_H3],
+						row_weapons_names[ROW_WEAPON_H4],
+						row_weapons_names[ROW_WEAPON_H5],
+						row_weapons_names[ROW_WEAPON_H6],
+						row_weapons_names[ROW_WEAPON_H7]
+				)
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+						PRIMARY KEY (%s),\
+						KEY `%s` (`%s`(16))\
+					) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;",
+					
+					row_weapons_names[ROW_WEAPON_ID],
+					row_weapons_names[ROW_WEAPON_NAME],
+					row_weapons_names[ROW_WEAPON_NAME]
+				)
+			}
+			// запрос для sqlite
+			else if(strcmp(type,"sqlite") == 0)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					CREATE TABLE IF NOT EXISTS `%s_weapons` (\
+						`%s` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,\
+						`%s`	INTEGER NOT NULL,\
+						`%s`	TEXT NOT NULL,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,",
+						
+						tbl_name,
+						row_weapons_names[ROW_WEAPON_ID],
+						row_weapons_names[ROW_WEAPON_PLAYER],
+						row_weapons_names[ROW_WEAPON_NAME],
+						row_weapons_names[ROW_WEAPON_KILLS],
+						row_weapons_names[ROW_WEAPON_DEATHS]
+				)
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,",
+						
+						row_weapons_names[ROW_WEAPON_HS],
+						row_weapons_names[ROW_WEAPON_TKS],
+						row_weapons_names[ROW_WEAPON_SHOTS],
+						row_weapons_names[ROW_WEAPON_HITS],
+						row_weapons_names[ROW_WEAPON_DMG]
+				)
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0,\
+						`%s`	INTEGER NOT NULL DEFAULT 0",
+						
+						row_weapons_names[ROW_WEAPON_H0],
+						row_weapons_names[ROW_WEAPON_H1],
+						row_weapons_names[ROW_WEAPON_H2],
+						row_weapons_names[ROW_WEAPON_H3],
+						row_weapons_names[ROW_WEAPON_H4],
+						row_weapons_names[ROW_WEAPON_H5],
+						row_weapons_names[ROW_WEAPON_H6],
+						row_weapons_names[ROW_WEAPON_H7]
+				)
+				que_len += formatex(query[que_len],charsmax(query) - que_len,");")
+			}
+			else
+			{
+				set_fail_state("invalid ^"csstats_sql_type^" cvar value")
+			}
+			
+			if(que_len)
+			{
+				SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+			}
+		}
 	}
 	
 	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
@@ -582,6 +775,12 @@ public client_putinserver(id)
 	reset_user_wstats(id)
 	
 	arrayset(player_data[id],0,player_data_struct)
+	
+	for(new wpn ; wpn < MAX_WEAPONS ; wpn ++)
+	{
+		arrayset(player_awstats[id][wpn],0,sizeof player_awstats[][])
+	}
+	
 	DB_LoadPlayerData(id)
 }
 
@@ -1054,8 +1253,7 @@ DB_LoadPlayerData(id)
 	get_user_ip(id,player_data[id][PLAYER_IP],charsmax(player_data[][PLAYER_IP]),true)
 	
 	// формируем SQL запрос
-	new query[QUERY_LENGTH],len,sql_data[2],tbl_name[32]
-	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
+	new query[QUERY_LENGTH],len,sql_data[2]
 	
 	sql_data[0] = SQL_LOAD
 	sql_data[1] = id
@@ -1099,6 +1297,28 @@ DB_LoadPlayerData(id)
 	return true
 }
 
+DB_LoadPlayerWstats(id)
+{
+	if(!player_data[id][PLAYER_ID])
+	{
+		return false
+	}
+	
+	new query[QUERY_LENGTH],sql_data[2]
+	
+	sql_data[0] = SQL_GETWSTATS
+	sql_data[1] = id
+	
+	formatex(query,charsmax(query),"SELECT * FROM `%s_weapons` WHERE `player_id` = '%d'",
+		tbl_name,player_data[id][PLAYER_ID]
+	)
+	
+	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	
+	return true
+		
+}
+
 /*
 * сохранение статистики игрока
 */
@@ -1110,9 +1330,6 @@ DB_SavePlayerData(id,bool:reload = false)
 	}
 	
 	new query[QUERY_LENGTH],i,len
-	new tbl_name[32]
-	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
-	
 	new sql_data[2]
 	
 	sql_data[1] = id
@@ -1369,27 +1586,18 @@ DB_SavePlayerData(id,bool:reload = false)
 	
 	if(query[0])
 	{
+		if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+		{
+			DB_SavePlayerWstats(id)
+		}
+		
 		switch(sql_data[0])
 		{
 			// накапливаем запросы 
 			case SQL_UPDATE:
 			{
 				// запросов достаточно, сбрасываем их
-				if((flush_que_len + len + 1) > charsmax(flush_que))
-				{
-					DB_FlushQuery()
-				}
-				
-				flush_que_len += formatex(
-					flush_que[flush_que_len],
-					charsmax(flush_que) - flush_que_len,
-					"%s%s",flush_que_len ? ";" : "",
-					query
-				)
-				
-				// задание на сброс накопленных запросов
-				remove_task(task_flush)
-				set_task(0.1,"DB_FlushQuery",task_flush)
+				DB_AddQuery(query,len)
 				
 				return true
 			}
@@ -1399,6 +1607,157 @@ DB_SavePlayerData(id,bool:reload = false)
 	}
 	
 	return true
+}
+
+//
+// Сохранение статистики по оружию
+//
+public DB_SavePlayerWstats(id)
+{
+	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // игрок не загрузился
+	{
+		return false
+	}
+	
+	new query[QUERY_LENGTH],len,log[MAX_NAME_LENGTH],wpn,stats_index,stats_index_last,to_save
+	new diff[STATS_END + HIT_END]
+	
+	const load_index = sizeof player_awstats[][] - 1
+	
+	// по всем оружиям
+	for(wpn = 0; wpn < MAX_WEAPONS ; wpn++)
+	{
+		Info_Weapon_GetLog(wpn,log,charsmax(log))
+		
+		if(!log[0])
+		{
+			continue
+		}
+		
+		to_save = 0
+		len = 0
+		
+		// расчитываем разницу статисткии
+		for(stats_index = 0;  stats_index < STATS_END + HIT_END;  stats_index++)
+		{
+			stats_index_last = stats_index + (STATS_END + HIT_END)
+			
+			diff[stats_index] = player_wstats[id][wpn][stats_index] - player_awstats[id][wpn][stats_index_last]
+			player_awstats[id][wpn][stats_index_last] = player_wstats[id][wpn][stats_index]
+		}
+		
+		switch(player_awstats[id][wpn][load_index])
+		{
+			// новая статистика оружия
+			case LOAD_NEW:
+			{
+				new id_row 
+				
+				// строим запрос
+				len += formatex(query[len],charsmax(query) - len,"INSERT INTO `%s_weapons` (`%s`,`%s`",
+					tbl_name,
+					
+					row_weapons_names[ROW_WEAPON_PLAYER],
+					row_weapons_names[ROW_WEAPON_NAME]
+				)
+				
+				for(stats_index = 0;  stats_index < STATS_END + HIT_END;  stats_index++)
+				{
+					id_row = ROW_WEAPON_KILLS + stats_index
+					
+					if(diff[stats_index])
+					{
+						len += formatex(query[len],charsmax(query) - len,",`%s`",
+							row_weapons_names[id_row]
+						)
+						
+						to_save ++
+					}
+				}
+				
+				if(to_save)
+				{
+					len += formatex(query[len],charsmax(query) - len,") VALUES('%d','%s'",
+						player_data[id][PLAYER_ID],
+						log
+					)
+					
+					for(stats_index = 0;  stats_index < STATS_END + HIT_END;  stats_index++)
+					{
+						id_row = ROW_WEAPON_KILLS + stats_index
+						
+						if(diff[stats_index])
+						{
+							len += formatex(query[len],charsmax(query) - len,",'%d'",
+								diff[stats_index]
+							)
+						}
+					}
+					
+					len += formatex(query[len],charsmax(query) - len,")")
+					player_awstats[id][wpn][load_index]  = LOAD_OK
+				}
+				
+				
+			}
+			// обновляем статистику
+			case LOAD_OK:
+			{
+				new id_row 
+				
+				// строим запрос
+				len += formatex(query[len],charsmax(query) - len,"UPDATE `%s_weapons` SET",tbl_name)
+				
+				for(stats_index = 0;  stats_index < STATS_END + HIT_END;  stats_index++)
+				{
+					id_row = ROW_WEAPON_KILLS + stats_index
+					
+					if(diff[stats_index])
+					{
+						len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+							to_save ? "," : "",
+							row_weapons_names[id_row],
+							row_weapons_names[id_row],
+							diff[stats_index]
+						)
+						
+						to_save ++
+					}
+				}
+				
+				len += formatex(query[len],charsmax(query) - len,"WHERE `%s` = '%s' AND `%s` = '%d'",
+					row_weapons_names[ROW_WEAPON_NAME],log,
+					row_weapons_names[ROW_WEAPON_PLAYER],player_data[id][PLAYER_ID]
+				)
+			}	
+		}
+		
+		if(to_save)
+		{
+			DB_AddQuery(query,len)
+		}
+	}
+	
+	return true
+}
+
+DB_AddQuery(query[],len)
+{
+	if((flush_que_len + len + 1) > charsmax(flush_que))
+	{
+		DB_FlushQuery()
+	}
+	
+	flush_que_len += formatex(
+		flush_que[flush_que_len],
+		charsmax(flush_que) - flush_que_len,
+		"%s%s",flush_que_len ? ";" : "",
+		query
+	)
+		
+	// задание на сброс накопленных запросов
+	remove_task(task_flush)
+	set_task(0.1,"DB_FlushQuery",task_flush)
 }
 
 //
@@ -1425,8 +1784,7 @@ public DB_GetPlayerRanks()
 	new players[32],pnum
 	get_players(players,pnum)
 	
-	new query[QUERY_LENGTH],len,tbl_name[32]
-	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
+	new query[QUERY_LENGTH],len
 	
 	// строим SQL запрос
 	len += formatex(query[len],charsmax(query) - len,"SELECT `id`,(")
@@ -1491,9 +1849,6 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos,overide
 	}
 	else
 	{
-		new tbl_name[32]
-		get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
-		
 		switch(overide_order ? overide_order : get_pcvar_num(cvar[CVAR_RANKFORMULA]))
 		{
 			case 1: return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE (kills)>=(a.kills)",tbl_name)
@@ -1514,9 +1869,6 @@ DB_QueryBuildScore(sql_que[] = "",sql_que_len = 0,bool:only_rows = falos,overide
 */ 
 DB_QueryBuildStatsnum(sql_que[] = "",sql_que_len = 0)
 {
-	new tbl_name[32]
-	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
-	
 	return formatex(sql_que,sql_que_len,"SELECT COUNT(*) FROM %s WHERE 1",tbl_name)
 }
 
@@ -1527,9 +1879,6 @@ DB_QueryBuildStatsnum(sql_que[] = "",sql_que_len = 0)
 */
 DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2,overide_order = 0)
 {
-	new tbl_name[32]
-	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
-	
 	// строим запрос
 	len += formatex(query[len],query_max-len,"SELECT *")
 	
@@ -1710,6 +2059,10 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					player_data[id][PLAYER_HITS][i] = SQL_ReadResult(sqlQue,ROW_H0 + i)
 				}
 				
+				if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+				{
+					DB_LoadPlayerWstats(id)
+				}
 			}
 			else // помечаем как нового игрока
 			{
@@ -1739,6 +2092,11 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				
 				// обновляем счетчик общего кол-ва записей
 				statsnum++
+				
+				if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+				{
+					DB_LoadPlayerWstats(id)
+				}
 			}
 			
 			// обновляем позици игроков
@@ -1817,9 +2175,95 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				callfunc_end()
 			}
 		}
+		
+		// 0.7
+		case SQL_GETWSTATS:
+		{
+			new id = data[1]
+			
+			if(!is_user_connected(id))
+			{
+				return PLUGIN_HANDLED
+			}
+			
+			const load_index = sizeof player_awstats[][] - 1
+			
+			// загружаем статистику по оружию
+			while(SQL_MoreResults(sqlQue))
+			{
+				new log[MAX_NAME_LENGTH]
+				SQL_ReadResult(sqlQue,ROW_WEAPON_NAME,log,charsmax(log))
+				
+				new wpn = Info_Weapon_GetId(log)
+				
+				if(wpn == -1)
+				{
+					continue
+				}
+				
+				for(new i ; i < STATS_END + HIT_END ; i++)
+				{
+					player_awstats[id][wpn][i] = SQL_ReadResult(sqlQue,i + ROW_WEAPON_KILLS)
+				}
+				
+				player_awstats[id][wpn][load_index] = LOAD_OK
+					
+				SQL_NextRow(sqlQue)
+			}
+			
+			// помечаем статистику по другим оружиям как новую
+			for(new wpn ; wpn < MAX_WEAPONS ; wpn++)
+			{
+				if(player_awstats[id][wpn][load_index] != LOAD_OK)
+				{
+					player_awstats[id][wpn][load_index] = LOAD_NEW
+				}
+			}
+		}
 	}
 
 	return PLUGIN_HANDLED
+}
+
+//
+// Поиск ID оружия по его лог коду
+//
+Info_Weapon_GetId(weapon[])
+{
+	new weapon_info[WEAPON_INFO_SIZE]
+	new length = ArraySize(weapons_data)
+	
+	for(new i ; i < length; i++)
+	{
+		ArrayGetArray(weapons_data,i,weapon_info)
+		
+		new weapon_name[MAX_NAME_LENGTH]
+		copy(weapon_name,charsmax(weapon_name),weapon_info[MAX_NAME_LENGTH])
+		
+		if(strcmp(weapon_name,weapon) == 0)
+		{
+			return i
+		}
+	}
+	
+	return -1
+}
+
+//
+// Поиск лог кода по ID оружия
+//
+Info_Weapon_GetLog(wpn_id,weapon_name[],len)
+{
+	if(!(0 < wpn_id < ArraySize(weapons_data)))
+	{
+		formatex(weapon_name,len,"")
+		return
+	}
+	
+	new weapon_info[WEAPON_INFO_SIZE]
+	ArrayGetArray(weapons_data,wpn_id,weapon_info)
+	
+	copy(weapon_name,len,weapon_info[MAX_NAME_LENGTH])
 }
 
 /*
@@ -2154,16 +2598,10 @@ public native_xmod_get_wpnname(plugin_id,params)
 public native_xmod_get_wpnlogname(plugin_id,params)
 {
 	new wpn_id = get_param(1)
-	
 	CHECK_WEAPON(wpn_id)
 	
-	new weapon_info[WEAPON_INFO_SIZE]
-	ArrayGetArray(weapons_data,wpn_id,weapon_info)
-	
 	new weapon_name[MAX_NAME_LENGTH]
-	copy(weapon_name,charsmax(weapon_name),weapon_info[MAX_NAME_LENGTH])
-	
-	set_string(2,weapon_name,get_param(3))
+	Info_Weapon_GetLog(wpn_id,weapon_name,get_param(3))
 	
 	return strlen(weapon_name)
 }
