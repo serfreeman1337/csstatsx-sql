@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 1"
+#define VERSION "0.7 Dev 2"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "08, May (05), 2016"
+#define LASTUPDATE "16, May (05), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -77,6 +77,15 @@ enum _:row_ids		// столбцы таблицы
 	ROW_H6,
 	ROW_H7,
 	ROW_ONLINETIME,
+	
+	// 0.7
+	ROW_CONNECTS,
+	ROW_ROUNDT,
+	ROW_WINT,
+	ROW_ROUNDCT,
+	ROW_WINCT,
+	// 0.7
+	
 	ROW_FIRSTJOIN,
 	ROW_LASTJOIN
 }
@@ -108,6 +117,15 @@ new const row_names[row_ids][] = // имена столбцов
 	"h_6",
 	"h_7",
 	"connection_time",
+	
+	// 0.7
+	"connects",
+	"roundt",
+	"wint",
+	"roundct",
+	"winct",
+	// 0.7
+	
 	"first_join",
 	"last_join"
 }
@@ -197,19 +215,30 @@ new const row_weapons_names[row_weapons_ids][] = // имена столбцов
 
 /* - СТРУКТУРА ДАННЫХ - */
 
+// 0.7
+enum _:STATS3_END
+{
+	STATS3_CONNECT,		// подключения к серверу
+	STATS3_ROUNDT,		// раунды за теров
+	STATS3_WINT,		// побед за теров
+	STATS3_ROUNDCT,		// раунды за спецов
+	STATS3_WINCT,		// побед за спецов
+	STATS3_CURRENTTEAM	// тек. команда игрока (определяется в начале раунда)
+}
+
 enum _:player_data_struct
 {
-	PLAYER_ID,		// ид игрока в базе данных
-	PLAYER_LOADSTATE,	// состояние загрузки статистики игрока
-	PLAYER_RANK,		// ранк игрока
+	PLAYER_ID,			// ид игрока в базе данных
+	PLAYER_LOADSTATE,		// состояние загрузки статистики игрока
+	PLAYER_RANK,			// ранк игрока
 	PLAYER_STATS[STATS_END],	// статистика игрока
 	PLAYER_STATSLAST[STATS_END],	// разница в статистики
 	PLAYER_HITS[HIT_END],		// статистика попаданий
 	PLAYER_HITSLAST[HIT_END],	// разница в статистике попаданий
-	PLAYER_STATS2[4],	// статистика cstrike
-	PLAYER_STATS2LAST[4],	// разница
+	PLAYER_STATS2[4],		// статистика cstrike
+	PLAYER_STATS2LAST[4],		// разница
 	Float:PLAYER_SKILL,		// скилл
-	PLAYER_ONLINE,		// время онлайна
+	PLAYER_ONLINE,			// время онлайна
 	// я не помню чо за diff и last, но без этого не работает XD
 	Float:PLAYER_SKILLLAST,
 	PLAYER_ONLINEDIFF,
@@ -217,7 +246,11 @@ enum _:player_data_struct
 	
 	PLAYER_NAME[MAX_NAME_LENGTH * 3],
 	PLAYER_STEAMID[30],
-	PLAYER_IP[16]
+	PLAYER_IP[16],
+	
+	// 0.7
+	PLAYER_STATS3[STATS3_END],	// stast3
+	PLAYER_STATS3LAST[STATS3_END]	// stast3
 }
 
 enum _:stats_cache_struct	// кеширование для get_stats
@@ -442,6 +475,8 @@ public plugin_init()
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
+	
+	
 }
 
 public plugin_cfg()
@@ -475,72 +510,184 @@ public plugin_cfg()
 		{
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
 				CREATE TABLE IF NOT EXISTS `%s` (\
-					`id` int(11) NOT NULL AUTO_INCREMENT,\
-					`steamid` varchar(30) NOT NULL,\
-					`name` varchar(32) NOT NULL,\
-					`ip` varchar(16) NOT NULL,\
-					`skill` float NOT NULL DEFAULT '0.0',\
-					`kills` int(11) NOT NULL DEFAULT '0',\
-					`deaths` int(11) NOT NULL DEFAULT '0',\
-					`hs` int(11) NOT NULL DEFAULT '0',",tbl_name)
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"`tks` int(11) NOT NULL DEFAULT '0',\
-					`shots` int(11) NOT NULL DEFAULT '0',\
-					`hits` int(11) NOT NULL DEFAULT '0',\
-					`dmg` int(11) NOT NULL DEFAULT '0',\
-					`bombdef` int(11) NOT NULL DEFAULT '0',\
-					`bombdefused` int(11) NOT NULL DEFAULT '0',\
-					`bombplants` int(11) NOT NULL DEFAULT '0',\
-					`bombexplosions` int(11) NOT NULL DEFAULT '0',\
-					`h_0` int(11) NOT NULL DEFAULT '0',")
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"`h_1` int(11) NOT NULL DEFAULT '0',\
-					`h_2` int(11) NOT NULL DEFAULT '0',\
-					`h_3` int(11) NOT NULL DEFAULT '0',\
-					`h_4` int(11) NOT NULL DEFAULT '0',\
-					`h_5` int(11) NOT NULL DEFAULT '0',\
-					`h_6` int(11) NOT NULL DEFAULT '0',\
-					`h_7` int(11) NOT NULL DEFAULT '0',\
-					`connection_time` int(11) NOT NULL,\
-					`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,")
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
-					PRIMARY KEY (id),\
-					KEY `steamid` (`steamid`(16)),\
-					KEY `name` (`name`(16)),\
-					KEY `ip` (`ip`)\
-				) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;")
+					`%s` int(11) NOT NULL AUTO_INCREMENT,\
+					`%s` varchar(30) NOT NULL,\
+					`%s` varchar(32) NOT NULL,\
+					`%s` varchar(16) NOT NULL,\
+					`%s` float NOT NULL DEFAULT '0.0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',",
+					
+					tbl_name,
+					
+					row_names[ROW_ID],
+					row_names[ROW_STEAMID],
+					row_names[ROW_NAME],
+					row_names[ROW_IP],
+					row_names[ROW_SKILL],
+					row_names[ROW_KILLS],
+					row_names[ROW_DEATHS],
+					row_names[ROW_HS]
+			)
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',",
+					
+					row_names[ROW_TKS],
+					row_names[ROW_SHOTS],
+					row_names[ROW_HITS],
+					row_names[ROW_DMG],
+					row_names[ROW_BOMBDEF],
+					row_names[ROW_BOMBDEFUSED],
+					row_names[ROW_BOMBPLANTS],
+					row_names[ROW_BOMBEXPLOSIONS],
+					row_names[ROW_H0]
+			)
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',",
+					
+					row_names[ROW_H1],
+					row_names[ROW_H2],
+					row_names[ROW_H3],
+					row_names[ROW_H4],
+					row_names[ROW_H5],
+					row_names[ROW_H6],
+					row_names[ROW_H7],
+					row_names[ROW_ONLINETIME]
+			)
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',",
+					
+					row_names[ROW_CONNECTS],
+					row_names[ROW_ROUNDT],
+					row_names[ROW_WINT],
+					row_names[ROW_ROUNDCT],
+					row_names[ROW_WINCT]
+			)
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
+				`%s` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
+					PRIMARY KEY (%s),\
+					KEY `%s` (`%s`(16)),\
+					KEY `%s` (`%s`(16)),\
+					KEY `%s` (`%s`)\
+				) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;",
+				
+				row_names[ROW_FIRSTJOIN],
+				row_names[ROW_LASTJOIN],
+				row_names[ROW_ID],
+				row_names[ROW_STEAMID],row_names[ROW_STEAMID],
+				row_names[ROW_NAME],row_names[ROW_NAME],
+				row_names[ROW_IP],row_names[ROW_IP]
+			)
 		}
 		// запрос для sqlite
 		else if(strcmp(type,"sqlite") == 0)
 		{
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
 				CREATE TABLE IF NOT EXISTS `%s` (\
-					`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,\
-					`steamid`	TEXT NOT NULL,\
-					`name`	TEXT NOT NULL,\
-					`ip`	TEXT NOT NULL,\
-					`skill`	REAL NOT NULL DEFAULT 0.0,\
-					`kills`	INTEGER NOT NULL DEFAULT 0,\
-					`deaths`	INTEGER NOT NULL DEFAULT 0,",tbl_name)
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"`hs`	INTEGER NOT NULL DEFAULT 0,\
-					`tks`	INTEGER NOT NULL DEFAULT 0,\
-					`shots`	INTEGER NOT NULL DEFAULT 0,\
-					`hits`	INTEGER NOT NULL DEFAULT 0,\
-					`dmg`	INTEGER NOT NULL DEFAULT 0,\
-					`bombdef`	INTEGER NOT NULL DEFAULT 0,\
-					`bombdefused`	INTEGER NOT NULL DEFAULT 0,\
-					`bombplants`	INTEGER NOT NULL DEFAULT 0,\
-					`bombexplosions`	INTEGER NOT NULL DEFAULT 0,")
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"`h_0`	INTEGER NOT NULL DEFAULT 0,\
-					`h_1`	INTEGER NOT NULL DEFAULT 0,\
-					`h_2`	INTEGER NOT NULL DEFAULT 0,\
-					`h_3`	INTEGER NOT NULL DEFAULT 0,\
-					`h_4`	INTEGER NOT NULL DEFAULT 0,\
-					`h_5`	INTEGER NOT NULL DEFAULT 0,\
-					`h_6`	INTEGER NOT NULL DEFAULT 0,\
-					`h_7`	INTEGER NOT NULL DEFAULT 0,")
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"`connection_time`	INTEGER NOT NULL DEFAULT 0,\
-					`first_join`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
-					`last_join`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'\
-				);")
+					`%s` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,\
+					`%s`	TEXT NOT NULL,\
+					`%s`	TEXT NOT NULL,\
+					`%s`	TEXT NOT NULL,\
+					`%s`	REAL NOT NULL DEFAULT 0.0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,",
+					
+					tbl_name,
+					
+					row_names[ROW_ID],
+					row_names[ROW_STEAMID],
+					row_names[ROW_NAME],
+					row_names[ROW_IP],
+					row_names[ROW_SKILL],
+					row_names[ROW_KILLS],
+					row_names[ROW_DEATHS]
+			)
+				
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,",
+					
+					row_names[ROW_HS],
+					row_names[ROW_TKS],
+					row_names[ROW_SHOTS],
+					row_names[ROW_HITS],
+					row_names[ROW_DMG],
+					row_names[ROW_BOMBDEF],
+					row_names[ROW_BOMBDEFUSED],
+					row_names[ROW_BOMBPLANTS],
+					row_names[ROW_BOMBEXPLOSIONS]
+			)
+					
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,",
+					
+					row_names[ROW_H0],
+					row_names[ROW_H1],
+					row_names[ROW_H2],
+					row_names[ROW_H3],
+					row_names[ROW_H4],
+					row_names[ROW_H5],
+					row_names[ROW_H6],
+					row_names[ROW_H7]
+			)
+					
+			// 0.7
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,",
+					
+					row_names[ROW_ONLINETIME],
+					row_names[ROW_CONNECTS],
+					row_names[ROW_ROUNDT],
+					row_names[ROW_WINT],
+					row_names[ROW_ROUNDCT],
+					row_names[ROW_WINCT]
+			)
+					
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
+					`%s`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'\
+				);",
+				
+				row_names[ROW_FIRSTJOIN],
+				row_names[ROW_LASTJOIN]
+			)
 		}
 		else
 		{
@@ -903,6 +1050,8 @@ public EventHook_SendAudio(player)
 		else if (audio_code[11] =='D' && g_defuser)
 		{
 			Stats_SaveBDefused(g_defuser)
+			
+			Event_CTWin()
 		}
 	}
 }
@@ -914,12 +1063,71 @@ public EventHook_TextMsg(player)
 	
 	if (!player)
 	{
+		// #Target_Bombed
 		if (message[1]=='T' && message[8] == 'B' && g_planter)
 		{
 			Stats_SaveBExplode(g_planter)
 			
 			g_planter = 0
 			g_defuser = 0
+			
+			Event_TWin()
+		}
+		// #Terrorists_Win -- #Hostages_Not_R
+		else if(message[2] == 'e' && message[12] == 'W' ||
+			message[1] == 'H' && message[14] == 'R'
+		)
+		{
+			Event_TWin()
+		}
+		// #Target_Saved -- #CTs_Win -- #All_Hostages_R
+		else if(message[1] == 'T' && message[8] == 'S' ||
+			message[2] == 'T' && message[5] == 'W' ||
+			message[1] == 'A' && message[14] == 'R'
+		)
+		{
+			Event_CTWin()
+		}
+		
+	}
+}
+
+//
+// Победа TERRORIST
+//
+Event_TWin()
+{
+	new players[MAX_PLAYERS],pnum
+	get_players(players,pnum)
+	
+	for(new i,player ; i < pnum ; i++)
+	{
+		player = players[i]
+		
+		// считаем статистику побед по командам
+		if(player_data[player][PLAYER_STATS3][STATS3_CURRENTTEAM] == 1)
+		{
+			player_data[player][PLAYER_STATS3][STATS3_WINT] ++
+		}
+	}
+}
+
+//
+// Победа CT
+//
+Event_CTWin()
+{
+	new players[MAX_PLAYERS],pnum
+	get_players(players,pnum)
+	
+	for(new i,player ; i < pnum ; i++)
+	{
+		player = players[i]
+		
+		// считаем статистику побед по командам
+		if(player_data[player][PLAYER_STATS3][STATS3_CURRENTTEAM] == 2)
+		{
+			player_data[player][PLAYER_STATS3][STATS3_WINCT] ++
 		}
 	}
 }
@@ -1213,6 +1421,22 @@ public LogEventHooK_RoundStart()
 	{
 		player = players[i]
 		reset_user_wstats(player)
+		
+		// определяем в какой команде игрок
+		switch(get_user_team(player))
+		{
+			// статистика сыгранных раундов по командам
+			case 1:
+			{
+				player_data[player][PLAYER_STATS3][STATS3_ROUNDT] ++
+				player_data[player][PLAYER_STATS3][STATS3_CURRENTTEAM] = 1
+			}
+			case 2:
+			{
+				player_data[player][PLAYER_STATS3][STATS3_ROUNDCT] ++
+				player_data[player][PLAYER_STATS3][STATS3_CURRENTTEAM] = 2
+			}
+		}
 	}
 
 	
@@ -1297,6 +1521,9 @@ DB_LoadPlayerData(id)
 	return true
 }
 
+//
+// Загрузка статистики по оружию
+//
 DB_LoadPlayerWstats(id)
 {
 	if(!player_data[id][PLAYER_ID])
@@ -1447,6 +1674,28 @@ DB_SavePlayerData(id,bool:reload = false)
 				}
 			}
 			
+			// 0.7
+			new diffstats3[STATS3_END]
+			
+			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
+			{
+				if(i == STATS3_CURRENTTEAM) // техническая переменная
+					break
+				
+				diffstats3[i] = player_data[id][PLAYER_STATS3][i] - player_data[id][PLAYER_STATS3LAST][i]
+				player_data[id][PLAYER_STATS3LAST][i] = player_data[id][PLAYER_STATS3][i]
+				
+				if(diffstats3[i])
+				{
+					len += formatex(query[len],charsmax(query) - len,",`%s` = `%s` + '%d'",
+						row_names[i + ROW_CONNECTS],row_names[i + ROW_CONNECTS],
+						diffstats3[i]
+					)
+						
+					to_save ++
+				}
+			}
+			
 			// обновляем время последнего подключения, ник, ип и steamid
 			len += formatex(query[len],charsmax(query) - len,",\
 				`last_join` = CURRENT_TIMESTAMP,\
@@ -1471,7 +1720,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			if(!to_save) // нечего сохранять
 			{
-				if(player_data[id][PLAYER_LOADSTATE] == LOAD_UPDATE)
+				if(player_data[id][PLAYER_LOADSTATE] == LOAD_UPDATE) // релоад для обновления ника
 				{
 					player_data[id][PLAYER_LOADSTATE] = LOAD_NO
 					DB_LoadPlayerData(id)
@@ -2049,6 +2298,8 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				SQL_ReadResult(sqlQue,ROW_SKILL,player_data[id][PLAYER_SKILL])
 				player_data[id][PLAYER_SKILLLAST] = _:player_data[id][PLAYER_SKILL]
 				
+				
+				
 				// доп. запросы
 				player_data[id][PLAYER_RANK] = SQL_ReadResult(sqlQue,row_ids)	// ранк игрока
 				statsnum = SQL_ReadResult(sqlQue,row_ids + 1)			// общее кол-во игроков в БД
@@ -2057,6 +2308,21 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				for(new i ; i < sizeof player_data[][PLAYER_HITS] ; i++)
 				{
 					player_data[id][PLAYER_HITS][i] = SQL_ReadResult(sqlQue,ROW_H0 + i)
+				}
+				
+				// 0.7
+				for(new i ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
+				{
+					if(i == STATS3_CURRENTTEAM)
+						break
+					
+					player_data[id][PLAYER_STATS3][i] = player_data[id][PLAYER_STATS3LAST][i] = SQL_ReadResult(sqlQue,i + ROW_CONNECTS)
+					
+					// плюсуем стату подключений
+					if(i == STATS3_CONNECT)
+					{
+						player_data[id][PLAYER_STATS3][i] ++
+					}
 				}
 				
 				if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
