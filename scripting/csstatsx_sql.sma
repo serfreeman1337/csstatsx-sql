@@ -9,7 +9,7 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 2"
+#define VERSION "0.7 Dev 3"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
 #define LASTUPDATE "16, May (05), 2016"
@@ -37,7 +37,8 @@ enum _:sql_que_type	// тип sql запроса
 	SQL_GETSTATS,	// потоквый запрос на get_stats
 	
 	// 0.7
-	SQL_GETWSTATS	// статистика по оружию
+	SQL_GETWSTATS,	// статистика по оружию
+	SQL_GETSESSID	// id сессии статистики за карту
 }
 
 enum _:load_state_type	// состояние получение статистики
@@ -87,7 +88,11 @@ enum _:row_ids		// столбцы таблицы
 	// 0.7
 	
 	ROW_FIRSTJOIN,
-	ROW_LASTJOIN
+	ROW_LASTJOIN,
+	
+	// 0.7
+	ROW_SESSIONID,
+	ROW_SESSIONNAME
 }
 
 new const row_names[row_ids][] = // имена столбцов
@@ -127,7 +132,11 @@ new const row_names[row_ids][] = // имена столбцов
 	// 0.7
 	
 	"first_join",
-	"last_join"
+	"last_join",
+	
+	// 0.7
+	"session_id",
+	"session_map"
 }
 
 enum _:STATS
@@ -286,13 +295,17 @@ enum _:cvar_set
 	CVAR_USEFORWARDS,
 	
 	// 0.7
-	CVAR_WEAPONSTATS
+	CVAR_WEAPONSTATS,
+	CVAR_MAPSTATS
 }
 
 /* - ПЕРЕМЕННЫЕ - */
 
+// 0.7
+new session_id,session_map[MAX_NAME_LENGTH]
+
 new player_data[MAX_PLAYERS + 1][player_data_struct]
-new flush_que[QUERY_LENGTH * 2],flush_que_len
+new flush_que[QUERY_LENGTH * 3],flush_que_len
 new statsnum
 
 //
@@ -463,6 +476,11 @@ public plugin_init()
 	*/
 	cvar[CVAR_WEAPONSTATS] = register_cvar("csstats_sql_weapons","0")
 	
+	/*
+	* ведение статистики по картам
+	*/
+	cvar[CVAR_MAPSTATS] = register_cvar("csstats_sql_maps","0")
+	
 	#if AMXX_VERSION_NUM < 183
 	MaxClients = get_maxplayers()
 	#endif
@@ -475,8 +493,6 @@ public plugin_init()
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
-	
-	
 }
 
 public plugin_cfg()
@@ -586,6 +602,8 @@ public plugin_cfg()
 			
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
 				`%s` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
+				`%s` int(11) DEFAULT NULL,\
+				`%s` varchar(32) DEFAULT NULL,\
 					PRIMARY KEY (%s),\
 					KEY `%s` (`%s`(16)),\
 					KEY `%s` (`%s`(16)),\
@@ -594,11 +612,17 @@ public plugin_cfg()
 				
 				row_names[ROW_FIRSTJOIN],
 				row_names[ROW_LASTJOIN],
+				
+				row_names[ROW_SESSIONID],
+				row_names[ROW_SESSIONNAME],
+				
 				row_names[ROW_ID],
 				row_names[ROW_STEAMID],row_names[ROW_STEAMID],
 				row_names[ROW_NAME],row_names[ROW_NAME],
 				row_names[ROW_IP],row_names[ROW_IP]
 			)
+			
+			write_file("mysql.txt",query)
 		}
 		// запрос для sqlite
 		else if(strcmp(type,"sqlite") == 0)
@@ -682,11 +706,15 @@ public plugin_cfg()
 			)
 					
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
-					`%s`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'\
+					`%s`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00',\
+					`%s`	INTEGER,\
+					`%s`	TEXT\
 				);",
 				
 				row_names[ROW_FIRSTJOIN],
-				row_names[ROW_LASTJOIN]
+				row_names[ROW_LASTJOIN],
+				row_names[ROW_SESSIONID],
+				row_names[ROW_SESSIONNAME]
 			)
 		}
 		else
@@ -890,6 +918,22 @@ public plugin_cfg()
 	REG_INFO(false,"ak47","ak47")
 	REG_INFO(true,"knife","knife")
 	REG_INFO(false,"p90","p90")
+	
+	// 0.7
+	
+	//
+	// запрос на получение ID сессии статистики за карту
+	//
+	if(get_pcvar_num(cvar[CVAR_MAPSTATS]))
+	{
+		new query[128],sql_data[1] = SQL_GETSESSID
+		
+		formatex(query,charsmax(query),"SELECT MAX(`session_id`) FROM `%s_maps`",
+			tbl_name
+		)
+		
+		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	}
 }
 
 public plugin_end()
@@ -1666,7 +1710,8 @@ DB_SavePlayerData(id,bool:reload = false)
 					
 					if(diffhits[i])
 					{
-						len += formatex(query[len],charsmax(query) - len,",`%s` = `%s` + '%d'",
+						len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+							!to_save ? " " : ",",
 							row_names[i + ROW_H0],row_names[i + ROW_H0],
 							diffhits[i]
 						)
@@ -1687,13 +1732,26 @@ DB_SavePlayerData(id,bool:reload = false)
 				
 				if(diffstats3[i])
 				{
-					len += formatex(query[len],charsmax(query) - len,",`%s` = `%s` + '%d'",
+					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
+						!to_save ? " " : ",",
 						row_names[i + ROW_CONNECTS],row_names[i + ROW_CONNECTS],
 						diffstats3[i]
 					)
 						
-					to_save ++
+					// не считаем залетных
+					if(diffstats[i] != STATS3_CONNECT)
+						to_save ++
 				}
+			}
+			
+			// 0.7 задаем поля для тригерром статистики по картам
+			if(session_id)
+			{
+				len += formatex(query[len],charsmax(query) - len,"%s`%s` = '%d',`%s` = '%s'",
+						!to_save ? " " : ",",
+						row_names[ROW_SESSIONID],session_id,
+						row_names[ROW_SESSIONNAME],session_map
+				)
 			}
 			
 			// обновляем время последнего подключения, ник, ип и steamid
@@ -2485,6 +2543,11 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					player_awstats[id][wpn][load_index] = LOAD_NEW
 				}
 			}
+		}
+		case SQL_GETSESSID:
+		{
+			session_id = SQL_ReadResult(sqlQue,0) + 1
+			get_mapname(session_map,charsmax(session_map))
 		}
 	}
 

@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS `csstats` (
+CREATE TABLE `csstats` (
 	`id` int(11) NOT NULL AUTO_INCREMENT,
 	`steamid` varchar(30) NOT NULL,
 	`name` varchar(32) NOT NULL,
@@ -23,9 +23,16 @@ CREATE TABLE IF NOT EXISTS `csstats` (
 	`h_5` int(11) NOT NULL DEFAULT '0',
 	`h_6` int(11) NOT NULL DEFAULT '0',
 	`h_7` int(11) NOT NULL DEFAULT '0',
-	`connection_time` int(11) NOT NULL,
+	`connection_time` int(11) NOT NULL DEFAULT '0',
+	`connects` INT NOT NULL DEFAULT '0',
+	`roundt` INT NOT NULL DEFAULT '0',
+	`wint` INT NOT NULL DEFAULT '0',
+	`roundct` INT NOT NULL DEFAULT '0',
+	`winct` INT NOT NULL DEFAULT '0',
 	`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+	`session_id` int(11) DEFAULT NULL,
+	`session_map` varchar(32) DEFAULT NULL,
 	PRIMARY KEY (id),
 	KEY `steamid` (`steamid`(16)),
 	KEY `name` (`name`(16)),
