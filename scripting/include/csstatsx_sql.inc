@@ -24,6 +24,7 @@ enum _:
 native get_statsnum_sql()
 native get_user_stats_sql(index, stats[8], bodyhits[8])
 native get_stats_sql(index, stats[8], bodyhits[8], name[], len, authid[] = "", authidlen = 0)
+native get_stats2_sql(index, stats2[4], authid[] = "", authidlen = 0)
 
 //
 // Perfrom thread query for top15 stats

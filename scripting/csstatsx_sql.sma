@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 3"
+#define VERSION "0.7 Dev 4"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "16, May (05), 2016"
+#define LASTUPDATE "14, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -265,7 +265,6 @@ enum _:player_data_struct
 enum _:stats_cache_struct	// кеширование для get_stats
 {
 	CACHE_STATS[8],
-	CACHE_STATS2[8],
 	CACHE_HITS[8],
 	CACHE_NAME[32],
 	CACHE_STEAMID[30],
@@ -274,7 +273,10 @@ enum _:stats_cache_struct	// кеширование для get_stats
 	
 	// 0.5.1
 	CACHE_ID,
-	CACHE_TIME
+	CACHE_TIME,
+	
+	// 0.7
+	CACHE_STATS2[4]
 }
 
 enum _:cvar_set
@@ -2659,6 +2661,7 @@ public plugin_natives()
 	register_native("get_user_stats_sql","native_get_user_stats")
 	register_native("get_stats_sql","native_get_stats")
 	register_native("get_stats_sql_thread","native_get_stats_thread")
+	register_native("get_stats2_sql","native_get_stats2")
 	register_native("get_user_skill","native_get_user_skill")
 	register_native("get_skill","native_get_skill")
 	
@@ -3287,7 +3290,118 @@ public native_get_stats(plugin_id,params)
 		set_string(6,steamid,get_param(7))
 	}
 	
-	return stats_count ? index + 1 : 0
+	return stats_count > 1 ? index + 1 : 0
+}
+
+/*
+* Получение статистик по позиции
+*
+* native get_stats2_sql(index, stats[4], authid[] = "", authidlen = 0)
+*/
+public native_get_stats2(plugin_id,params)
+{
+	if(params < 2)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 2, passed %d",params)
+		
+		return false
+	}
+	else if(params > 2 && params != 4)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 4, passed %d",params)
+		
+		return false
+	}
+	
+	new index = get_param(1)	// индекс в статистике
+	
+	// кеширование
+	new index_str[10],stats_cache[stats_cache_struct]
+	num_to_str(index,index_str,charsmax(index_str))
+	
+	// есть информация в кеше
+	if(stats_cache_trie && TrieGetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct))
+	{
+		set_array(2,stats_cache[CACHE_STATS2],sizeof stats_cache[CACHE_STATS2])
+		
+		if(params == 4)
+		{
+			set_string(3,stats_cache[CACHE_STEAMID],get_param(4))
+		}
+		
+		return !stats_cache[CACHE_LAST] ? index + 1 : 0
+	}
+	// кеширование
+	
+	/*
+	* прямой запрос в БД, в случае если нету данных в кеше
+	*/
+	
+	// открываем соединение с БД для получения актуальных данных
+	if(!DB_OpenConnection())
+	{
+		return false	// ошибка открытия соединения
+	}
+	else
+	{
+		// задание на сброс содеинения
+		// чтобы не открывать новые и успеть получить сразу несколько данных за одно соединение
+		if(!task_exists(task_confin))
+		{
+			set_task(0.1,"DB_CloseConnection",task_confin)
+		}
+	}
+	
+	// подготавливаем запрос в БД
+	new query[QUERY_LENGTH]
+	DB_QueryBuildGetstats(query,charsmax(query),.index = index)
+	new Handle:sqlQue = SQL_PrepareQuery(sql_con,query)
+	
+	// ошибка выполнения запроса
+	if(!SQL_Execute(sqlQue))
+	{
+		new errNum,err[256]
+		errNum = SQL_QueryError(sqlQue,err,charsmax(err))
+		
+		log_amx("SQL query failed")
+		log_amx("[ %d ] %s",errNum,err)
+		log_amx("[ SQL ] %s",query)
+		
+		SQL_FreeHandle(sqlQue)
+		
+		return 0
+	}
+	
+	// читаем результат
+	new name[32],steamid[30],stats[8],hits[8],stats2[4],stats_count
+		
+	DB_ReadGetStats(sqlQue,
+		name,charsmax(name),
+		steamid,charsmax(steamid),
+		stats,
+		hits,
+		stats2,
+		stats_count,
+		index
+	)
+	
+	// статистики нет
+	if(!stats_count)
+	{
+		return false
+	}
+	
+	SQL_FreeHandle(sqlQue)
+	
+	// возвращаем данные натива
+	set_array(2,stats2,sizeof player_data[][PLAYER_STATS2])
+		
+	if(params == 4)
+	{
+		set_string(3,steamid,get_param(4))
+	}
+	
+	return stats_count > 1 ? index + 1 : 0
 }
 
 /*
@@ -3495,11 +3609,6 @@ public native_get_user_stats2(plugin_id,params)
 	set_array(2,player_data[id][PLAYER_STATS2],sizeof player_data[][PLAYER_STATS2])
 	
 	return true
-}
-
-public native_get_stats2(plugin_id,params)
-{
-	return 0
 }
 
 /*********    mysql escape functions     ************/
