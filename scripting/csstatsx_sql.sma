@@ -3015,7 +3015,7 @@ public native_get_user_stats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // данные отсутствуют
 	{
