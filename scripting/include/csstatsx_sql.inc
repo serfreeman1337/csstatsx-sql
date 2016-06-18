@@ -18,6 +18,16 @@ enum _:
 	CSXSQL_RANK_TIME
 }
 
+enum _:STATS3_END
+{
+	STATS3_CONNECT,			// player connects
+	STATS3_ROUNDT,			// rounds as t
+	STATS3_WINT,				// wins as t
+	STATS3_ROUNDCT,			// round as ct
+	STATS3_WINCT,				// win as ct
+	STATS3_CURRENTTEAM		// do not use
+}
+
 //
 // SQL alternative stats natives from csx module
 //
@@ -40,6 +50,26 @@ native get_stats2_sql(index, stats2[4], authid[] = "", authidlen = 0)
 //	@note stats are cached so you can use get_stats and etc. natives to get stats without lags
 //
 native get_stats_sql_thread(id,position,top,callback[],order = CSXSQL_RANK_DEF)
+
+//
+// Get player stats3
+//	@id - player id
+//	@stats3 - stats3 array
+//
+//	@return - player rank or 0 on fail
+//
+native get_user_stats3_sql(id,stats3[STATS3_END])
+
+//
+// Get player stats3 by stats index
+//	@id - stats index
+//	@stats3 - stats3 array
+//	@authid - player authid
+//	@authidlen - authid len
+//
+//	@return - next stats index or 0 on last
+//
+native get_stats3_sql(index, stats3[STATS3_END], authid[] = "", authidlen = 0)
 
 //
 // Get skill value by stats index

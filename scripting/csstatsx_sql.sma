@@ -264,10 +264,10 @@ enum _:player_data_struct
 
 enum _:stats_cache_struct	// кеширование для get_stats
 {
-	CACHE_STATS[8],
-	CACHE_HITS[8],
 	CACHE_NAME[32],
 	CACHE_STEAMID[30],
+	CACHE_STATS[8],
+	CACHE_HITS[8],
 	CACHE_SKILL,
 	bool:CACHE_LAST,
 	
@@ -276,7 +276,8 @@ enum _:stats_cache_struct	// кеширование для get_stats
 	CACHE_TIME,
 	
 	// 0.7
-	CACHE_STATS2[4]
+	CACHE_STATS2[4],
+	CACHE_STATS3[STATS3_END]
 }
 
 enum _:cvar_set
@@ -2208,60 +2209,57 @@ DB_QueryBuildGetstats(query[],query_max,len = 0,index,index_count = 2,overide_or
 /*
 * чтение результата get_stats запроса
 */
-DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len = 0,stats[8] = 0,hits[8] = 0,stats2[4] = 0,&stats_count = 0,index)
+DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len = 0,stats[8] = 0,hits[8] = 0,stats2[4] = 0,stats3[STATS3_END] = 0,&stats_count = 0,index)
 {
 	stats_count = SQL_NumResults(sqlQue)
 	
+	new stats_cache[stats_cache_struct]
+	
 	switch(get_pcvar_num(cvar[CVAR_RANK]))
 	{
-		case 0: SQL_ReadResult(sqlQue,ROW_NAME,authid,authid_len)
-		case 1: SQL_ReadResult(sqlQue,ROW_STEAMID,authid,authid_len)
-		case 2: SQL_ReadResult(sqlQue,ROW_IP,authid,authid_len)
+		case 0: SQL_ReadResult(sqlQue,ROW_NAME,stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]))
+		case 1: SQL_ReadResult(sqlQue,ROW_STEAMID,stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]))
+		case 2: SQL_ReadResult(sqlQue,ROW_IP,stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]))
 	}
 	
-	SQL_ReadResult(sqlQue,ROW_NAME,name,name_len)
+	SQL_ReadResult(sqlQue,ROW_NAME,stats_cache[CACHE_NAME],charsmax(stats_cache[CACHE_NAME]))
+	
+	copy(name,name_len,stats_cache[CACHE_NAME])
+	copy(authid,authid_len,stats_cache[CACHE_STEAMID])
 	
 	new i
 	
-	for(i = ROW_KILLS ; i <= ROW_H7 ; i++)
+	for(i = ROW_KILLS ; i <= ROW_LASTJOIN ; i++)
 	{
 		switch(i)
 		{
 			case ROW_KILLS..ROW_DMG:
 			{
-				stats[i - ROW_KILLS] = SQL_ReadResult(sqlQue,i)
+				stats_cache[CACHE_STATS][i - ROW_KILLS] = stats[i - ROW_KILLS] = SQL_ReadResult(sqlQue,i)
 			}
 			case ROW_BOMBDEF..ROW_BOMBEXPLOSIONS:
 			{
-				stats2[i - ROW_BOMBDEF] = SQL_ReadResult(sqlQue,i)
+				stats_cache[CACHE_STATS2][i - ROW_BOMBDEF] = stats2[i - ROW_BOMBDEF] = SQL_ReadResult(sqlQue,i)
 			}
 			case ROW_H0..ROW_H7:
 			{
-				hits[i - ROW_H0] = SQL_ReadResult(sqlQue,i)
+				stats_cache[CACHE_HITS][i - ROW_H0] = hits[i - ROW_H0] = SQL_ReadResult(sqlQue,i)
+			}
+			// 0.7
+			case ROW_CONNECTS..ROW_WINCT:
+			{
+				stats_cache[CACHE_STATS3][i - ROW_CONNECTS] = stats3[i - ROW_CONNECTS] = SQL_ReadResult(sqlQue,i)
 			}
 		}
 		
 	}
 	
-	// кеширование данных
-	new stats_cache[stats_cache_struct]
+	server_print("--> ROW CONNECTS: %d",stats3[STATS3_CONNECT])
 	
+	// кеширование данных
 	if(!stats_cache_trie)
 	{
 		stats_cache_trie = TrieCreate()
-	}
-	
-	copy(stats_cache[CACHE_NAME],charsmax(stats_cache[CACHE_NAME]),name)
-	copy(stats_cache[CACHE_STEAMID],charsmax(stats_cache[CACHE_STEAMID]),authid)
-	
-	for(i = 0; i < sizeof player_data[][PLAYER_STATS] ; i++)
-	{
-		stats_cache[CACHE_STATS][i] = stats[i]
-	}
-	
-	for(i = 0; i < sizeof player_data[][PLAYER_STATS2] ; i++)
-	{
-		stats_cache[CACHE_STATS2][i] = stats2[i]
 	}
 	
 	stats_cache[CACHE_LAST] = SQL_NumResults(sqlQue) <= 1
@@ -2671,6 +2669,10 @@ public plugin_natives()
 	register_native("get_user_stats_id","native_get_user_stats_id")
 	register_native("get_stats_id","native_get_stats_id")
 	register_native("update_stats_cache","native_update_stats_cache")
+	
+	// 0.7
+	register_native("get_user_stats3_sql","native_get_user_stats3")
+	register_native("get_stats3_sql","native_get_stats3")
 }
 
 public native_update_stats_cache()
@@ -3260,16 +3262,15 @@ public native_get_stats(plugin_id,params)
 	}
 	
 	// читаем результат
-	new name[32],steamid[30],stats[8],hits[8],stats2[4],stats_count
+	new name[32],steamid[30],stats[8],hits[8],stats_count
 		
 	DB_ReadGetStats(sqlQue,
 		name,charsmax(name),
 		steamid,charsmax(steamid),
 		stats,
 		hits,
-		stats2,
-		stats_count,
-		index
+		.stats_count = stats_count,
+		.index = index
 	)
 	
 	// статистики нет
@@ -3373,16 +3374,14 @@ public native_get_stats2(plugin_id,params)
 	}
 	
 	// читаем результат
-	new name[32],steamid[30],stats[8],hits[8],stats2[4],stats_count
+	new name[32],steamid[30],stats2[4],stats_count
 		
 	DB_ReadGetStats(sqlQue,
 		name,charsmax(name),
 		steamid,charsmax(steamid),
-		stats,
-		hits,
-		stats2,
-		stats_count,
-		index
+		.stats2 = stats2,
+		.stats_count = stats_count,
+		.index = index
 	)
 	
 	// статистики нет
@@ -3465,6 +3464,137 @@ public native_get_stats_thread(plugin_id,params)
 	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 	
 	return true
+}
+
+// 0.7
+/*
+* Получение статистик по позиции
+*
+* native get_stats3_sql(index, stats3[STATS3_END], authid[] = "", authidlen = 0)
+*/
+public native_get_stats3(plugin_id,params)
+{
+	if(params < 2)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 2, passed %d",params)
+		
+		return false
+	}
+	else if(params > 2 && params != 4)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 4, passed %d",params)
+		
+		return false
+	}
+	
+	new index = get_param(1)	// индекс в статистике
+	
+	// кеширование
+	new index_str[10],stats_cache[stats_cache_struct]
+	num_to_str(index,index_str,charsmax(index_str))
+	
+	// есть информация в кеше
+	if(stats_cache_trie && TrieGetArray(stats_cache_trie,index_str,stats_cache,stats_cache_struct))
+	{
+		set_array(2,stats_cache[CACHE_STATS3],sizeof stats_cache[CACHE_STATS3])
+		
+		if(params == 4)
+		{
+			set_string(3,stats_cache[CACHE_STEAMID],get_param(4))
+		}
+		
+		return !stats_cache[CACHE_LAST] ? index + 1 : 0
+	}
+	// кеширование
+	
+	/*
+	* прямой запрос в БД, в случае если нету данных в кеше
+	*/
+	
+	// открываем соединение с БД для получения актуальных данных
+	if(!DB_OpenConnection())
+	{
+		return false	// ошибка открытия соединения
+	}
+	else
+	{
+		// задание на сброс содеинения
+		// чтобы не открывать новые и успеть получить сразу несколько данных за одно соединение
+		if(!task_exists(task_confin))
+		{
+			set_task(0.1,"DB_CloseConnection",task_confin)
+		}
+	}
+	
+	// подготавливаем запрос в БД
+	new query[QUERY_LENGTH]
+	DB_QueryBuildGetstats(query,charsmax(query),.index = index)
+	new Handle:sqlQue = SQL_PrepareQuery(sql_con,query)
+	
+	// ошибка выполнения запроса
+	if(!SQL_Execute(sqlQue))
+	{
+		new errNum,err[256]
+		errNum = SQL_QueryError(sqlQue,err,charsmax(err))
+		
+		log_amx("SQL query failed")
+		log_amx("[ %d ] %s",errNum,err)
+		log_amx("[ SQL ] %s",query)
+		
+		SQL_FreeHandle(sqlQue)
+		
+		return 0
+	}
+	
+	// читаем результат
+	new name[32],steamid[30],stats3[STATS3_END],stats_count
+		
+	DB_ReadGetStats(sqlQue,
+		name,charsmax(name),
+		steamid,charsmax(steamid),
+		.stats3 = stats3,
+		.stats_count = stats_count,
+		.index = index
+	)
+	
+	// статистики нет
+	if(!stats_count)
+	{
+		return false
+	}
+	
+	SQL_FreeHandle(sqlQue)
+	
+	// возвращаем данные натива
+	set_array(2,stats3,sizeof player_data[][PLAYER_STATS3])
+		
+	if(params == 4)
+	{
+		set_string(3,steamid,get_param(4))
+	}
+	
+	return stats_count > 1 ? index + 1 : 0
+}
+
+/*
+* Получение статистик по позиции
+*
+* native get_user_stats3_sql(id,stats3[STATS3_END])
+*/
+public native_get_user_stats3(plugin_id,params)
+{
+	new id = get_param(1)
+	
+	CHECK_PLAYERRANGE(id)
+	
+	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // данные отсутствуют
+	{
+		return 0
+	}
+	
+	set_array(2,player_data[id][PLAYER_STATS3],STATS3_END)
+	
+	return player_data[id][PLAYER_RANK]
 }
 
 /*
