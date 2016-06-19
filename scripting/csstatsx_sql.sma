@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 4"
+#define VERSION "0.7 Dev 5"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "14, June (06), 2016"
+#define LASTUPDATE "19, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -38,7 +38,8 @@ enum _:sql_que_type	// тип sql запроса
 	
 	// 0.7
 	SQL_GETWSTATS,	// статистика по оружию
-	SQL_GETSESSID	// id сессии статистики за карту
+	SQL_GETSESSID,	// id сессии статистики за карту
+	SQL_GETSESTATS	// статистика по картам
 }
 
 enum _:load_state_type	// состояние получение статистики
@@ -222,6 +223,42 @@ new const row_weapons_names[row_weapons_ids][] = // имена столбцов
 	"h_7"
 }
 
+enum _:row_maps_ids
+{
+	ROW_MAP_ID,
+	ROW_MAP_SESSID,
+	ROW_MAP_PLRID,
+	ROW_MAP_MAP,
+	ROW_MAP_SKILL,
+	ROW_MAP_KILLS,
+	ROW_MAP_DEATHS,
+	ROW_MAP_HS,
+	ROW_MAP_TKS,
+	ROW_MAP_SHOTS,
+	ROW_MAP_HITS,
+	ROW_MAP_DMG,
+	ROW_MAP_BOMBDEF,
+	ROW_MAP_BOMBDEFUSED,
+	ROW_MAP_BOMBPLANTS,
+	ROW_MAP_BOMBEXPLOSIONS,
+	ROW_MAP_H0,
+	ROW_MAP_H1,
+	ROW_MAP_H2,
+	ROW_MAP_H3,
+	ROW_MAP_H4,
+	ROW_MAP_H5,
+	ROW_MAP_H6,
+	ROW_MAP_H7,
+	ROW_MAP_ONLINETIME,
+	ROW_MAP_CONNECTS,
+	ROW_MAP_ROUNDT,
+	ROW_MAP_WINT,
+	ROW_MAP_ROUNDCT,
+	ROW_MAP_WINCT,
+	ROW_MAP_FIRSTJOIN,
+	ROW_MAP_LASTJOIN,
+}
+
 /* - СТРУКТУРА ДАННЫХ - */
 
 // 0.7
@@ -233,6 +270,22 @@ enum _:STATS3_END
 	STATS3_ROUNDCT,		// раунды за спецов
 	STATS3_WINCT,		// побед за спецов
 	STATS3_CURRENTTEAM	// тек. команда игрока (определяется в начале раунда)
+}
+
+
+enum _:sestats_array_struct
+{
+	SESTATS_ID,
+	SESTATS_PLAYERID,
+	SESTATS_MAP[MAX_NAME_LENGTH],
+	SESTATS_STATS[8],
+	SESTATS_HITS[8],
+	SESTATS_STATS2[4],
+	SESTATS_STATS3[STATS3_END],
+	Float:SESTATS_SKILL,
+	SESTATS_ONLINETIME,
+	SESTATS_FIRSTJOIN,
+	SESTATS_LASTJOIN
 }
 
 enum _:player_data_struct
@@ -301,6 +354,8 @@ enum _:cvar_set
 	CVAR_WEAPONSTATS,
 	CVAR_MAPSTATS
 }
+
+#define	MAX_DATA_PARAMS	32
 
 /* - ПЕРЕМЕННЫЕ - */
 
@@ -496,6 +551,8 @@ public plugin_init()
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
+	
+	register_clcmd("f10","DB_SavePlayerWstats")
 }
 
 public plugin_cfg()
@@ -2254,8 +2311,6 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 		
 	}
 	
-	server_print("--> ROW CONNECTS: %d",stats3[STATS3_CONNECT])
-	
 	// кеширование данных
 	if(!stats_cache_trie)
 	{
@@ -2549,6 +2604,73 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			session_id = SQL_ReadResult(sqlQue,0) + 1
 			get_mapname(session_map,charsmax(session_map))
 		}
+		// get_sestats_thread_sql
+		case SQL_GETSESTATS:
+		{
+			new Array:sestats_array = ArrayCreate(sestats_array_struct)
+			new sestats_data[sestats_array_struct]
+			
+			while(SQL_MoreResults(sqlQue))
+			{
+				arrayset(sestats_data,0,sestats_array_struct)
+				
+				// заполняем массив со статой сессии
+				for(new i = ROW_MAP_ID ; i <= ROW_MAP_LASTJOIN ; i++)
+				{
+					switch(i)
+					{
+						case ROW_MAP_ID: sestats_data[SESTATS_ID] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_PLRID: sestats_data[SESTATS_PLAYERID] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_MAP: SQL_ReadResult(sqlQue,i,sestats_data[SESTATS_MAP],charsmax(sestats_data[SESTATS_MAP]))
+						case ROW_MAP_SKILL: SQL_ReadResult(sqlQue,i,sestats_data[SESTATS_SKILL])
+						case ROW_MAP_KILLS..ROW_MAP_DMG: sestats_data[SESTATS_STATS][(i - ROW_MAP_KILLS)] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_H0..ROW_MAP_H7: sestats_data[SESTATS_HITS][(i - ROW_MAP_H0)] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_BOMBDEF..ROW_MAP_BOMBEXPLOSIONS: sestats_data[SESTATS_STATS2][(i - ROW_MAP_BOMBDEF)] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_ROUNDT..ROW_MAP_WINCT: sestats_data[SESTATS_STATS3][(i - ROW_MAP_ROUNDT)] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_ONLINETIME: sestats_data[SESTATS_ONLINETIME] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_FIRSTJOIN,ROW_LASTJOIN:
+						{
+							new date_str[32]
+							SQL_ReadResult(sqlQue,i,date_str,charsmax(date_str))
+							
+							sestats_data[(SESTATS_FIRSTJOIN + (i - ROW_MAP_FIRSTJOIN))] = parse_time(date_str,"%Y-%m-%d %H:%M:%S")
+						}
+					}
+				}
+				
+				ArrayPushArray(sestats_array,sestats_data)
+				
+				SQL_NextRow(sqlQue)
+			}
+			
+			new func_id = data[1]
+			new plugin_id = data[2]
+			
+			if(callfunc_begin_i(func_id,plugin_id))
+			{
+				callfunc_push_int(int:sestats_array)
+				
+				// передаваемые данные
+				if(dataSize > 3)
+				{
+					new cb_data[MAX_DATA_PARAMS]
+					
+					for(new i ; i < (dataSize - 3) ; i++)
+					{
+						cb_data[i] = data[(3 + i)]
+					}
+					
+					callfunc_push_array(cb_data,(dataSize - 3))
+					callfunc_push_int((dataSize - 3))
+				}
+				
+				callfunc_end()
+			}
+			else
+			{
+				log_amx("get_sestats_thread_sql callback function failed")
+			}
+		}
 	}
 
 	return PLUGIN_HANDLED
@@ -2673,6 +2795,291 @@ public plugin_natives()
 	// 0.7
 	register_native("get_user_stats3_sql","native_get_user_stats3")
 	register_native("get_stats3_sql","native_get_stats3")
+	register_native("get_user_wstats_sql","native_get_user_wstats_sql")
+	register_native("get_sestats_thread_sql","native_get_sestats_thread_sql")
+	register_native("get_sestats_read_count","native_get_sestats_read_count")
+	register_native("get_sestats_read_stats","native_get_sestats_read_stats")
+	register_native("get_sestats_read_stats2","native_get_sestats_read_stats2")
+	register_native("get_sestats_read_stats3","native_get_sestats_read_stats3")
+	register_native("get_sestats_read_online","native_get_sestats_read_online")
+	register_native("get_sestats_read_skill","native_get_sestats_read_skill")
+	register_native("get_sestats_read_map","native_get_sestats_read_map")
+	register_native("get_sestats_read_stime","native_get_sestats_read_stime")
+	register_native("get_sestats_read_etime","native_get_sestats_read_etime")
+	register_native("get_sestats_free","native_get_sestats_free")
+}
+
+public native_get_sestats_read_stime(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	return sestats_data[SESTATS_FIRSTJOIN]
+}
+
+public native_get_sestats_read_etime(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	return sestats_data[SESTATS_LASTJOIN]
+}
+
+public native_get_sestats_free(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	ArrayDestroy(sestats)
+	
+	set_param_byref(1,0)
+	
+	return true
+}
+
+public native_get_sestats_read_map(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	new length = get_param(4)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	return set_string(3,sestats_data[SESTATS_MAP],length)
+}
+
+public Float:native_get_sestats_read_skill(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0.0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	return sestats_data[SESTATS_SKILL]
+}
+
+public native_get_sestats_read_online(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	return sestats_data[SESTATS_ONLINETIME]
+}
+
+public native_get_sestats_read_stats(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	set_array(3,sestats_data[SESTATS_STATS],8)
+	set_array(4,sestats_data[SESTATS_HITS],8)
+	
+	index ++
+	
+	return (index >= sestats_size) ? 0 : index
+}
+
+public native_get_sestats_read_stats2(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 <= index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	set_array(3,sestats_data[SESTATS_STATS2],4)
+	
+	index ++
+	
+	return (index >= sestats_size) ? 0 : index
+}
+
+public native_get_sestats_read_stats3(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	new index = get_param(2)
+	
+	new sestats_size = ArraySize(sestats)
+	
+	if(!(0 < index < sestats_size))
+	{
+		return 0
+	}
+	
+	new sestats_data[sestats_array_struct]
+	ArrayGetArray(sestats,index,sestats_data)
+	
+	set_array(3,sestats_data[SESTATS_STATS3],STATS3_END)
+	
+	index ++
+	
+	return (index >= sestats_size) ? 0 : index
+}
+
+public native_get_sestats_read_count(plugin_id,params)
+{
+	new Array:sestats = Array:get_param(1)
+	
+	return ArraySize(sestats)
+}
+
+public native_get_sestats_thread_sql(plugin_id,params)
+{
+	// статистика по картам выключена
+	if(session_id == 0)
+	{
+		return false
+	}
+	
+	new callback_func[32]
+	get_string(2,callback_func,charsmax(callback_func))
+	
+	new func_id = get_func_id(callback_func,plugin_id)
+	
+	// функция ответа не найдена
+	if(func_id == -1)
+	{
+		log_error(AMX_ERR_NATIVE,"Callback function ^"%s^" not found",callback_func)
+		return false
+	}
+	
+	new data_size = get_param(4)
+	
+	if(data_size > MAX_DATA_PARAMS)
+	{
+		log_error(AMX_ERR_NATIVE,"Max data size %d reached.",MAX_DATA_PARAMS)
+		return false
+	}
+	
+	// подготавливаем данные
+	new sql_data[3 + MAX_DATA_PARAMS],data_array[MAX_DATA_PARAMS]
+	
+	sql_data[0] = SQL_GETSESTATS
+	sql_data[1] = func_id
+	sql_data[2] = plugin_id
+	
+	// передаваемые данные
+	if(data_size)
+	{
+		get_array(3,data_array,data_size)
+		
+		for(new i ; i < data_size ; i++)
+		{
+			sql_data[i + 3] = data_array[i]
+		}
+	}
+	
+	new player_db_id = get_param(1)	// ищем по ID игрока
+	new limit = get_param(5)		// лимит на выборку
+	
+	new query[QUERY_LENGTH]
+	
+	formatex(query,charsmax(query),"SELECT * FROM `%s_maps` WHERE `player_id` = '%d' LIMIT %d",
+		tbl_name,player_db_id,limit
+	)
+	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,3 + data_size)
+	
+	return true
+}
+
+public native_get_user_wstats_sql(plugin_id,params)
+{
+	if(params != 4)
+	{
+		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 4, passed %d",params)
+		
+		return false
+	}
+	
+	new player_id = get_param(1)
+	CHECK_PLAYERRANGE(player_id)
+	
+	new weapon_id = get_param(2)
+	CHECK_WEAPON(weapon_id)
+	
+	new stats[8],bh[8]
+	
+	for(new i ; i < STATS_END ; i++)
+	{
+		stats[i] = player_awstats[player_id][weapon_id][i]
+	}
+	
+	// игрок не пользовался этим оружием
+	if(!stats[STATS_DEATHS] &&  !stats[STATS_SHOTS])
+	{
+		return false
+	}
+	
+	for(new i = STATS_END ; i < (STATS_END + HIT_END) ; i ++)
+	{
+		bh[(i - STATS_END)] = player_awstats[player_id][weapon_id][i]
+	}
+	
+	set_array(3,stats,sizeof stats)
+	set_array(4,bh,sizeof bh)
+	
+	return true
 }
 
 public native_update_stats_cache()
@@ -2688,7 +3095,7 @@ public native_update_stats_cache()
 public native_get_user_gametime(plugin_id,params)
 {
 	new id = get_param(1)
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	if(player_data[id][PLAYER_LOADSTATE] == LOAD_NO)
 	{
@@ -2731,7 +3138,7 @@ public native_get_stats_gametime(plugin_id,params)
 public native_get_user_stats_id(plugin_id,params)
 {
 	new id = get_param(1)
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	return player_data[id][PLAYER_ID]
 }
@@ -2768,7 +3175,7 @@ public native_get_stats_id(plugin_id,params)
 public native_get_user_skill(plugin_id,params)
 {
 	new id = get_param(1)
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	set_float_byref(2,player_data[id][PLAYER_SKILL])
 	
@@ -2847,11 +3254,11 @@ public native_custom_weapon_dmg(plugin_id,params)
 	
 	new att = get_param(2)
 	
-	CHECK_PLAYER(att)
+	CHECK_PLAYERRANGE(att)
 	
 	new vic = get_param(3)
 	
-	CHECK_PLAYER(vic)
+	CHECK_PLAYERRANGE(vic)
 	
 	new dmg = get_param(4)
 	
@@ -2880,7 +3287,7 @@ public native_custom_weapon_shot(plugin_id,params)
 	
 	new id = get_param(2)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	return Stats_SaveShot(id,weapon_id)
 }
@@ -2964,7 +3371,7 @@ public native_get_user_wstats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	new wpn_id = get_param(2)
 	
@@ -2988,7 +3395,7 @@ public native_get_user_wrstats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	new wpn_id = get_param(2)
 	
@@ -3042,7 +3449,7 @@ public native_get_user_rstats(plugin_id,params)
 {
 	new id = get_param(1)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	new stats[8],bh[8]
 	get_user_rstats(id,stats,bh)
@@ -3069,7 +3476,7 @@ public native_get_user_vstats(plugin_id,params)
 	new id = get_param(1)
 	new victim = get_param(2)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	CHECK_PLAYERRANGE(victim)
 	
 	new stats[STATS_END],hits[HIT_END],wname[MAX_NAME_LENGTH]
@@ -3148,7 +3555,7 @@ public native_get_user_astats(plugin_id,params)
 	new id = get_param(1)
 	new attacker = get_param(2)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	CHECK_PLAYERRANGE(attacker)
 	
 	new stats[STATS_END],hits[HIT_END],wname[MAX_NAME_LENGTH]
@@ -3165,7 +3572,7 @@ public native_reset_user_wstats()
 {
 	new id = get_param(1)
 	
-	CHECK_PLAYER(id)
+	CHECK_PLAYERRANGE(id)
 	
 	return reset_user_wstats(id)
 }

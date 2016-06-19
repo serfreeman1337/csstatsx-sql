@@ -127,3 +127,71 @@ native get_stats_id(index,&stats_id)
 // Refresh stats cache
 //
 native update_stats_cache()
+
+//
+// Gets overtime player stats from given weapon index.
+//	@id - player id
+//	@wpnindex - weapon index
+//	@stats - array to save stats too
+//	@bodyhits - array to save bodyhits stats too
+//
+//	@return - 1 on success and  0 in other case.
+//
+native get_user_wstats_sql(id,wpnindex,stats[8],bodyhits[8])
+
+//
+// Perform thread request for sessions stats
+//	@player_db_id - player database id
+//	@handler - callback handler function
+//		public MyHandler(CSXSQL_SESSTATS:sestats_array,data[],dataSize)
+//	@data - data array you passed in
+//	@dataSize - size of the data array you passed in
+//
+//	@return - true on success and fail if map stats is disabled
+//
+native get_sestats_thread_sql(player_db_id,handler[],data[] = 0,datasize = 0,limit = 5)
+
+//
+// Get session stats count
+//	@sestats_array - session stats array
+//
+//	@return - session stats count
+//
+native get_sestats_read_count(CSXSQL_SESSTATS:sestats_array)
+
+//
+// Get session stats map for given index
+//
+native get_sestats_read_map(CSXSQL_SESSTATS:sestats_array,index,map[],map_len)
+
+//
+// Get session stats for given index
+//
+native get_sestats_read_stats(CSXSQL_SESSTATS:sestats_array,index,stats[8],bh[8])
+native get_sestats_read_stats2(CSXSQL_SESSTATS:sestats_array,index,stats2[4])
+native get_sestats_read_stats3(CSXSQL_SESSTATS:sestats_array,index,stats3[STATS3_END])
+
+//
+// Get session played time for given index
+//
+native get_sestats_read_online(CSXSQL_SESSTATS:sestats_array,index)
+
+//
+// Get session skill for given index
+//
+native Float:get_sestats_read_skill(CSXSQL_SESSTATS:sestats_array,index)
+
+//
+// Get session start play time
+//
+native get_sestats_read_stime(CSXSQL_SESSTATS:sestats_array,index)
+
+//
+// Get session end play time
+//
+native get_sestats_read_etime(CSXSQL_SESSTATS:sestats_array,index)
+
+//
+// Free session stats array
+//
+native get_sestats_free(&CSXSQL_SESSTATS:sestats_array)
