@@ -9,7 +9,7 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 5"
+#define VERSION "0.7 Dev 6"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
 #define LASTUPDATE "19, June (06), 2016"
@@ -39,7 +39,8 @@ enum _:sql_que_type	// тип sql запроса
 	// 0.7
 	SQL_GETWSTATS,	// статистика по оружию
 	SQL_GETSESSID,	// id сессии статистики за карту
-	SQL_GETSESTATS	// статистика по картам
+	SQL_GETSESTATS,	// статистика по картам
+	SQL_AUTOCLEAR	// чистка БД от неактивных записей
 }
 
 enum _:load_state_type	// состояние получение статистики
@@ -352,7 +353,9 @@ enum _:cvar_set
 	
 	// 0.7
 	CVAR_WEAPONSTATS,
-	CVAR_MAPSTATS
+	CVAR_MAPSTATS,
+	
+	CVAR_AUTOCLEAR
 }
 
 #define	MAX_DATA_PARAMS	32
@@ -539,6 +542,11 @@ public plugin_init()
 	*/
 	cvar[CVAR_MAPSTATS] = register_cvar("csstats_sql_maps","0")
 	
+	/*
+	* автоматическое удаление неактвиных игроков в БД
+	*/
+	cvar[CVAR_AUTOCLEAR] = register_cvar("csstats_sql_autoclear","0")
+	
 	#if AMXX_VERSION_NUM < 183
 	MaxClients = get_maxplayers()
 	#endif
@@ -551,9 +559,9 @@ public plugin_init()
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
-	
-	register_clcmd("f10","DB_SavePlayerWstats")
 }
+
+new bool:weapon_stats_enabled,bool:map_stats_enabled
 
 public plugin_cfg()
 {
@@ -573,14 +581,17 @@ public plugin_cfg()
 	
 	sql = SQL_MakeDbTuple(host,user,pass,db)
 	
+	weapon_stats_enabled = get_pcvar_num(cvar[CVAR_WEAPONSTATS]) == 1? true : false
+	map_stats_enabled = get_pcvar_num(cvar[CVAR_MAPSTATS]) == 1 ? true : false
+	
+	new query[QUERY_LENGTH],que_len
+	
+	new sql_data[1]
+	sql_data[0] = SQL_DUMMY
+
 	// запрос на создание таблицы
 	if(get_pcvar_num(cvar[CVAR_SQL_CREATE_DB]))
 	{
-		new query[QUERY_LENGTH],que_len
-			
-		new sql_data[1]
-		sql_data[0] = SQL_DUMMY
-		
 		// запрос для mysql
 		if(strcmp(type,"mysql") == 0)
 		{
@@ -681,8 +692,6 @@ public plugin_cfg()
 				row_names[ROW_NAME],row_names[ROW_NAME],
 				row_names[ROW_IP],row_names[ROW_IP]
 			)
-			
-			write_file("mysql.txt",query)
 		}
 		// запрос для sqlite
 		else if(strcmp(type,"sqlite") == 0)
@@ -784,7 +793,7 @@ public plugin_cfg()
 		
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 		
-		if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+		if(weapon_stats_enabled)
 		{
 			que_len = 0
 			
@@ -908,6 +917,94 @@ public plugin_cfg()
 		}
 	}
 	
+	// 0.7
+	new autoclear_days = get_pcvar_num(cvar[CVAR_AUTOCLEAR])
+	
+	if(autoclear_days > 0)
+	{
+		que_len = 0
+		
+		if(strcmp(type,"mysql") == 0)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"DELETE `%s`",
+				tbl_name
+			)
+			
+			if(weapon_stats_enabled)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,",`%s_weapons`",tbl_name)
+			}
+			
+			if(map_stats_enabled)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,",`%s_maps`",tbl_name)
+			}
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len," FROM `%s`",
+				tbl_name
+			)
+			
+			if(weapon_stats_enabled)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					LEFT JOIN `%s_weapons` ON `%s`.`%s` = `%s_weapons`.`%s`",
+					tbl_name,
+					tbl_name,row_names[ROW_ID],
+					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER]
+				)
+			}
+			
+			if(map_stats_enabled)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					LEFT JOIN `%s_maps` ON `%s`.`%s` = `%s_maps`.`%s`",
+					tbl_name,
+					tbl_name,row_names[ROW_ID],
+					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER]
+				)
+			}
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"WHERE `%s`.`%s` <= DATE_SUB(NOW(),INTERVAL %d DAY);",
+				tbl_name,row_names[ROW_LASTJOIN],autoclear_days
+			)
+			
+		}
+		else if(strcmp(type,"sqlite") == 0)
+		{
+			if(weapon_stats_enabled)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s_weapons` WHERE `%s` IN (\
+						SELECT `%s` FROM `%s` WHERE `%s` <= DATETIME('now','-%d day')\
+					);",
+					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
+					row_names[ROW_ID],tbl_name,row_names[ROW_LASTJOIN],
+					autoclear_days
+				)
+			}
+			
+			if(map_stats_enabled)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s_maps` WHERE `%s` IN (\
+						SELECT `%s` FROM `%s` WHERE `%s` <= DATETIME('now','-%d day')\
+					);",
+					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
+					row_names[ROW_ID],tbl_name,row_names[ROW_LASTJOIN],
+					autoclear_days
+				)
+			}
+			
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s` WHERE `%s` <= DATETIME('now','-%d day');",
+					tbl_name,row_names[ROW_LASTJOIN],autoclear_days
+			)
+		}
+		
+		sql_data[0] = SQL_AUTOCLEAR
+		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	}
+	
 	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
 	
 	#if AMXX_VERSION_NUM >= 183
@@ -984,7 +1081,7 @@ public plugin_cfg()
 	//
 	// запрос на получение ID сессии статистики за карту
 	//
-	if(get_pcvar_num(cvar[CVAR_MAPSTATS]))
+	if(map_stats_enabled)
 	{
 		new query[128],sql_data[1] = SQL_GETSESSID
 		
@@ -1953,7 +2050,7 @@ DB_SavePlayerData(id,bool:reload = false)
 	
 	if(query[0])
 	{
-		if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+		if(weapon_stats_enabled)
 		{
 			DB_SavePlayerWstats(id)
 		}
@@ -2438,7 +2535,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					}
 				}
 				
-				if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+				if(weapon_stats_enabled)
 				{
 					DB_LoadPlayerWstats(id)
 				}
@@ -2472,7 +2569,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				// обновляем счетчик общего кол-ва записей
 				statsnum++
 				
-				if(get_pcvar_num(cvar[CVAR_WEAPONSTATS]))
+				if(weapon_stats_enabled)
 				{
 					DB_LoadPlayerWstats(id)
 				}
@@ -2669,6 +2766,15 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			else
 			{
 				log_amx("get_sestats_thread_sql callback function failed")
+			}
+		}
+		case SQL_AUTOCLEAR:
+		{
+			if(SQL_AffectedRows(sqlQue))
+			{
+				log_amx("deleted %d inactive entries",
+					SQL_AffectedRows(sqlQue)
+				)
 			}
 		}
 	}
