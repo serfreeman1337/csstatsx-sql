@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 6"
+#define VERSION "0.7 Dev 7"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "19, June (06), 2016"
+#define LASTUPDATE "20, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -47,10 +47,10 @@ enum _:load_state_type	// состояние получение статисти
 {
 	LOAD_NO,	// данных нет
 	LOAD_WAIT,	// ожидание данных
-	LOAD_OK,	// есть данные
-	LOAD_NEW,	// новая запись
 	LOAD_NEWWAIT,	// новая запись, ждем ответа
-	LOAD_UPDATE	// перезагрузить после обновления
+	LOAD_UPDATE,	// перезагрузить после обновления
+	LOAD_NEW,	// новая запись
+	LOAD_OK		// есть данные
 }
 
 enum _:row_ids		// столбцы таблицы
@@ -313,7 +313,9 @@ enum _:player_data_struct
 	
 	// 0.7
 	PLAYER_STATS3[STATS3_END],	// stast3
-	PLAYER_STATS3LAST[STATS3_END]	// stast3
+	PLAYER_STATS3LAST[STATS3_END],	// stast3
+	PLAYER_FIRSTJOIN,
+	PLAYER_LASTJOIN
 }
 
 enum _:stats_cache_struct	// кеширование для get_stats
@@ -331,7 +333,9 @@ enum _:stats_cache_struct	// кеширование для get_stats
 	
 	// 0.7
 	CACHE_STATS2[4],
-	CACHE_STATS3[STATS3_END]
+	CACHE_STATS3[STATS3_END],
+	CACHE_FIRSTJOIN,
+	CACHE_LASTJOIN
 }
 
 enum _:cvar_set
@@ -1252,6 +1256,8 @@ public EventHook_SendAudio(player)
 		{
 			Stats_SaveBDefused(g_defuser)
 			
+			server_print("--> CTWIN2")
+			
 			Event_CTWin()
 		}
 	}
@@ -1264,29 +1270,39 @@ public EventHook_TextMsg(player)
 	
 	if (!player)
 	{
+		server_print("--> MSG TRIGGERED [%s]",message)
+		
 		// #Target_Bombed
-		if (message[1]=='T' && message[8] == 'B' && g_planter)
+		if ((message[1]=='T' && message[8] == 'B') && g_planter)
 		{
 			Stats_SaveBExplode(g_planter)
 			
 			g_planter = 0
 			g_defuser = 0
 			
+			server_print("--> TWIN1")
+			
 			Event_TWin()
 		}
 		// #Terrorists_Win -- #Hostages_Not_R
-		else if(message[2] == 'e' && message[12] == 'W' ||
-			message[1] == 'H' && message[14] == 'R'
+		else if(
+			(message[2] == 'e' && message[12] == 'W') ||
+			(message[1] == 'H' && message[14] == 'R')
 		)
 		{
+			server_print("--> TWIN2")
+			
 			Event_TWin()
 		}
 		// #Target_Saved -- #CTs_Win -- #All_Hostages_R
-		else if(message[1] == 'T' && message[8] == 'S' ||
-			message[2] == 'T' && message[5] == 'W' ||
-			message[1] == 'A' && message[14] == 'R'
+		else if(
+			(message[1] == 'T' && message[8] == 'S') ||
+			(message[2] == 'T' && message[5] == 'W') ||
+			(message[1] == 'A' && message[14] == 'R')
 		)
 		{
+			server_print("--> CTWIN1")
+			
 			Event_CTWin()
 		}
 		
@@ -1300,6 +1316,8 @@ Event_TWin()
 {
 	new players[MAX_PLAYERS],pnum
 	get_players(players,pnum)
+	
+	server_print("--> T WIN TRIGGER")
 	
 	for(new i,player ; i < pnum ; i++)
 	{
@@ -1320,6 +1338,8 @@ Event_CTWin()
 {
 	new players[MAX_PLAYERS],pnum
 	get_players(players,pnum)
+	
+	server_print("--> CT WIN TRIGGER")
 	
 	for(new i,player ; i < pnum ; i++)
 	{
@@ -1666,7 +1686,7 @@ DB_LoadPlayerData(id)
 	}
 	
 	// пропускаем ботов, если отключена запись статистики ботов
-	if(!get_pcvar_num(cvar[CVAR_RANKBOTS]) && is_user_bot(id))
+	if( is_user_bot(id) && !get_pcvar_num(cvar[CVAR_RANKBOTS]))
 	{
 		return false
 	}
@@ -1752,7 +1772,7 @@ DB_LoadPlayerWstats(id)
 */
 DB_SavePlayerData(id,bool:reload = false)
 {
-	if(player_data[id][PLAYER_LOADSTATE] < LOAD_OK) // игрок не загрузился
+	if(player_data[id][PLAYER_LOADSTATE] < LOAD_NEW) // игрок не загрузился
 	{
 		return false
 	}
@@ -1881,8 +1901,13 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
 			{
+				server_print("--> STATS3[%d] - %d",
+					sizeof player_data[][PLAYER_STATS3],
+					i
+				)
+				
 				if(i == STATS3_CURRENTTEAM) // техническая переменная
-					break
+					continue
 				
 				diffstats3[i] = player_data[id][PLAYER_STATS3][i] - player_data[id][PLAYER_STATS3LAST][i]
 				player_data[id][PLAYER_STATS3LAST][i] = player_data[id][PLAYER_STATS3][i]
@@ -2404,6 +2429,13 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 			{
 				stats_cache[CACHE_STATS3][i - ROW_CONNECTS] = stats3[i - ROW_CONNECTS] = SQL_ReadResult(sqlQue,i)
 			}
+			case ROW_FIRSTJOIN..ROW_LASTJOIN:
+			{
+				new date_str[32]
+				SQL_ReadResult(sqlQue,i,date_str,charsmax(date_str))
+							
+				stats_cache[(CACHE_FIRSTJOIN + (i - ROW_FIRSTJOIN))] = parse_time(date_str,"%Y-%m-%d %H:%M:%S")
+			}
 		}
 		
 	}
@@ -2508,7 +2540,13 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				SQL_ReadResult(sqlQue,ROW_SKILL,player_data[id][PLAYER_SKILL])
 				player_data[id][PLAYER_SKILLLAST] = _:player_data[id][PLAYER_SKILL]
 				
+				// посл подключение и первое подкчлючение
+				new date_str[32]
 				
+				SQL_ReadResult(sqlQue,ROW_FIRSTJOIN,date_str,charsmax(date_str))
+				player_data[id][PLAYER_FIRSTJOIN] = parse_time(date_str,"%Y-%m-%d %H:%M:%S")
+				SQL_ReadResult(sqlQue,ROW_LASTJOIN,date_str,charsmax(date_str))
+				player_data[id][PLAYER_LASTJOIN] = parse_time(date_str,"%Y-%m-%d %H:%M:%S")
 				
 				// доп. запросы
 				player_data[id][PLAYER_RANK] = SQL_ReadResult(sqlQue,row_ids)	// ранк игрока
@@ -2913,6 +2951,34 @@ public plugin_natives()
 	register_native("get_sestats_read_stime","native_get_sestats_read_stime")
 	register_native("get_sestats_read_etime","native_get_sestats_read_etime")
 	register_native("get_sestats_free","native_get_sestats_free")
+	register_native("get_user_firstjoin_sql","native_get_user_firstjoin_sql")
+	register_native("get_user_lastjoin_sql","native_get_user_lastjoin_sql")
+}
+
+public native_get_user_firstjoin_sql(plugin_id,params)
+{
+	new id = get_param(1)
+	CHECK_PLAYERRANGE(id)
+	
+	if(player_data[id][PLAYER_LOADSTATE] == LOAD_NO)
+	{
+		return -1
+	}
+	
+	return player_data[id][PLAYER_FIRSTJOIN]
+}
+
+public native_get_user_lastjoin_sql(plugin_id,params)
+{
+	new id = get_param(1)
+	CHECK_PLAYERRANGE(id)
+	
+	if(player_data[id][PLAYER_LOADSTATE] == LOAD_NO)
+	{
+		return -1
+	}
+	
+	return player_data[id][PLAYER_LASTJOIN]
 }
 
 public native_get_sestats_read_stime(plugin_id,params)
@@ -2924,6 +2990,7 @@ public native_get_sestats_read_stime(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -2942,6 +3009,7 @@ public native_get_sestats_read_etime(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -2971,6 +3039,7 @@ public native_get_sestats_read_map(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -2989,6 +3058,7 @@ public Float:native_get_sestats_read_skill(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0.0
 	}
 	
@@ -3007,6 +3077,7 @@ public native_get_sestats_read_online(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -3025,6 +3096,7 @@ public native_get_sestats_read_stats(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -3048,6 +3120,7 @@ public native_get_sestats_read_stats2(plugin_id,params)
 	
 	if(!(0 <= index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -3070,6 +3143,7 @@ public native_get_sestats_read_stats3(plugin_id,params)
 	
 	if(!(0 < index < sestats_size))
 	{
+		log_error(AMX_ERR_NATIVE,"Stats index out of range (%d)",index)
 		return 0
 	}
 	
@@ -3156,6 +3230,11 @@ public native_get_user_wstats_sql(plugin_id,params)
 		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 4, passed %d",params)
 		
 		return false
+	}
+	
+	if(!weapon_stats_enabled)
+	{
+		return -1
 	}
 	
 	new player_id = get_param(1)
