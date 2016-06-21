@@ -2184,7 +2184,7 @@ public DB_SavePlayerWstats(id)
 					}
 					
 					len += formatex(query[len],charsmax(query) - len,")")
-					player_awstats[id][wpn][load_index]  = LOAD_OK
+					player_awstats[id][wpn][load_index]  = _:LOAD_OK
 				}
 				
 				
@@ -2886,7 +2886,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					player_awstats[id][wpn][i] = SQL_ReadResult(sqlQue,i + ROW_WEAPON_KILLS)
 				}
 				
-				player_awstats[id][wpn][load_index] = LOAD_OK
+				player_awstats[id][wpn][load_index] = _:LOAD_OK
 					
 				SQL_NextRow(sqlQue)
 			}
@@ -2894,9 +2894,9 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			// помечаем статистику по другим оружиям как новую
 			for(new wpn ; wpn < MAX_WEAPONS ; wpn++)
 			{
-				if(player_awstats[id][wpn][load_index] != LOAD_OK)
+				if(_:player_awstats[id][wpn][load_index] != _:LOAD_OK)
 				{
-					player_awstats[id][wpn][load_index] = LOAD_NEW
+					player_awstats[id][wpn][load_index] = _:LOAD_NEW
 				}
 			}
 		}
