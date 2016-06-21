@@ -592,7 +592,7 @@ public plugin_init()
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
 	
-	register_srvcmd("csstatsx_sql_reset","SrvCmd_DBReset")
+	register_srvcmd("csstats_sql_reset","SrvCmd_DBReset")
 }
 
 public plugin_cfg()
