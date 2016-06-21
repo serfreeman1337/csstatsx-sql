@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 7"
+#define VERSION "0.7 Dev 8"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "20, June (06), 2016"
+#define LASTUPDATE "21, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -359,7 +359,16 @@ enum _:cvar_set
 	CVAR_WEAPONSTATS,
 	CVAR_MAPSTATS,
 	
-	CVAR_AUTOCLEAR
+	CVAR_AUTOCLEAR,
+	CVAR_CACHETIME
+}
+
+
+// 0.7
+enum _:stats_cache_queue_struct
+{
+	CACHE_QUE_START,
+	CACHE_QUE_TOP,
 }
 
 #define	MAX_DATA_PARAMS	32
@@ -427,6 +436,11 @@ new g_defuser
 
 new Array:weapons_data			// массив с инфой по оружию
 new Trie:log_ids_trie			// дерево для быстрого определения id оружия по лог-коду
+
+// 0.7
+new Array:stats_cache_queue
+
+new bool:weapon_stats_enabled,bool:map_stats_enabled
 
 // макрос для помощи реагистрации инфы по оружию
 #define REG_INFO(%0,%1,%2)\
@@ -509,7 +523,7 @@ public plugin_init()
 	*	0 			- при дисконнекте
 	*	значение больше 0 	- через указанное кол-во секунд и дисконнекте
 	*/
-	cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","0")
+	cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","-1")
 	
 	/*
 	* включить собственные форварды для client_death, client_damage
@@ -551,8 +565,15 @@ public plugin_init()
 	*/
 	cvar[CVAR_AUTOCLEAR] = register_cvar("csstats_sql_autoclear","0")
 	
+	/*
+	* использование кеша для get_stats
+	*	-1 - обновлять в конце раунда или по времени csstats_sql_update
+	*	0 - отключить использование кеша
+	*/
+	cvar[CVAR_CACHETIME] = register_cvar("csstats_sql_cachetime","-1")
+	
 	#if AMXX_VERSION_NUM < 183
-	MaxClients = get_maxplayers()
+		MaxClients = get_maxplayers()
 	#endif
 	
 	register_logevent("LogEventHooK_RoundEnd", 2, "1=Round_End") 
@@ -564,8 +585,6 @@ public plugin_init()
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
 }
-
-new bool:weapon_stats_enabled,bool:map_stats_enabled
 
 public plugin_cfg()
 {
@@ -1256,8 +1275,6 @@ public EventHook_SendAudio(player)
 		{
 			Stats_SaveBDefused(g_defuser)
 			
-			server_print("--> CTWIN2")
-			
 			Event_CTWin()
 		}
 	}
@@ -1270,8 +1287,6 @@ public EventHook_TextMsg(player)
 	
 	if (!player)
 	{
-		server_print("--> MSG TRIGGERED [%s]",message)
-		
 		// #Target_Bombed
 		if ((message[1]=='T' && message[8] == 'B') && g_planter)
 		{
@@ -1279,8 +1294,6 @@ public EventHook_TextMsg(player)
 			
 			g_planter = 0
 			g_defuser = 0
-			
-			server_print("--> TWIN1")
 			
 			Event_TWin()
 		}
@@ -1290,8 +1303,6 @@ public EventHook_TextMsg(player)
 			(message[1] == 'H' && message[14] == 'R')
 		)
 		{
-			server_print("--> TWIN2")
-			
 			Event_TWin()
 		}
 		// #Target_Saved -- #CTs_Win -- #All_Hostages_R
@@ -1301,8 +1312,6 @@ public EventHook_TextMsg(player)
 			(message[1] == 'A' && message[14] == 'R')
 		)
 		{
-			server_print("--> CTWIN1")
-			
 			Event_CTWin()
 		}
 		
@@ -1316,8 +1325,6 @@ Event_TWin()
 {
 	new players[MAX_PLAYERS],pnum
 	get_players(players,pnum)
-	
-	server_print("--> T WIN TRIGGER")
 	
 	for(new i,player ; i < pnum ; i++)
 	{
@@ -1338,8 +1345,6 @@ Event_CTWin()
 {
 	new players[MAX_PLAYERS],pnum
 	get_players(players,pnum)
-	
-	server_print("--> CT WIN TRIGGER")
 	
 	for(new i,player ; i < pnum ; i++)
 	{
@@ -1901,11 +1906,6 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
 			{
-				server_print("--> STATS3[%d] - %d",
-					sizeof player_data[][PLAYER_STATS3],
-					i
-				)
-				
 				if(i == STATS3_CURRENTTEAM) // техническая переменная
 					continue
 				
@@ -2303,6 +2303,8 @@ public DB_GetPlayerRanks()
 	}
 }
 
+new bool:update_cache = false
+
 /*
 * сохранение статистики всех игроков
 */
@@ -2311,12 +2313,16 @@ public DB_SaveAll()
 	new players[32],pnum
 	get_players(players,pnum)
 	
+	if(get_pcvar_num(cvar[CVAR_CACHETIME]) == -1)
+	{
+		update_cache = true
+	}
+	
 	for(new i ; i < pnum ; i++)
 	{
 		DB_SavePlayerData(players[i])
 	}
 }
-
 
 /*
 * запрос на просчет ранка
@@ -2460,6 +2466,158 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 	SQL_NextRow(sqlQue)
 	
 	return SQL_MoreResults(sqlQue)
+}
+
+//
+// Задаем очередь для обновления кеша
+//
+Cache_Stats_SetQueue(start_index,top)
+{
+	// очередь уже создана
+	if(Cache_Stats_CheckQueue(start_index,top))
+	{
+		return false
+	}
+	
+	if(!stats_cache_queue)
+	{
+		stats_cache_queue = ArrayCreate(stats_cache_queue_struct)
+	}
+	
+	new length = ArraySize(stats_cache_queue)
+	
+	new cache_queue_info[stats_cache_queue_struct]
+	cache_queue_info[CACHE_QUE_START] = start_index
+	cache_queue_info[CACHE_QUE_TOP] = top
+	
+	if(!length) // новая очередь
+	{
+		ArrayPushArray(stats_cache_queue,cache_queue_info)
+	}
+	else // в топ
+	{
+		ArrayInsertArrayBefore(stats_cache_queue,0,cache_queue_info)
+	}
+	
+	length ++
+	
+	if(length > 5) // максимум 5 заданий в очереди
+	{
+		ArrayDeleteItem(stats_cache_queue,5)
+		length --
+	}
+	
+	return true
+}
+
+//
+// Обновление кеша через очередь
+//
+Cache_Stats_UpdateQueue()
+{
+	if(!stats_cache_queue)
+	{
+		return false
+	}
+	
+	for(new i,length = ArraySize(stats_cache_queue),cache_queue_info[stats_cache_queue_struct] ; i < length ; i++)
+	{
+		ArrayGetArray(stats_cache_queue,i,cache_queue_info)
+		DB_QueryTop15(0,-1,-1,-1,cache_queue_info[CACHE_QUE_START],cache_queue_info[CACHE_QUE_TOP],-1)
+	}
+	
+	return true
+}
+
+Cache_Stats_CheckQueue(start_index,top)
+{
+	if(!stats_cache_queue)
+	{
+		return false
+	}
+	
+	for(new i,length = ArraySize(stats_cache_queue),cache_queue_info[stats_cache_queue_struct] ; i < length ; i++)
+	{
+		ArrayGetArray(stats_cache_queue,i,cache_queue_info)
+		
+		if(start_index == cache_queue_info[0] &&
+			top == cache_queue_info[1]
+		)
+		{
+			return true
+		}
+	}
+	
+	return false
+}
+
+//
+// Потоковый запрос на Top15
+//
+DB_QueryTop15(id,plugin_id,func_id,position,start_index,top,params)
+{
+	// кеширование
+	if((get_pcvar_num(cvar[CVAR_CACHETIME]) != 0) && stats_cache_trie)
+	{
+		Cache_Stats_SetQueue(start_index,top)
+		
+		new bool:use_cache = true
+		
+		// проверяем что требуемые данные есть в кеше
+		for(new i =  start_index,index_str[10]; i < (start_index + top) ; i++)
+		{
+			num_to_str(i,index_str,charsmax(index_str))
+			
+			if(!TrieKeyExists(stats_cache_trie,index_str))
+			{
+				use_cache = false
+			}
+		}
+		
+		// юзаем кеш
+		if(use_cache)
+		{
+			// вызываем хандлер другого плагина
+			
+			if(func_id > -1)
+			{
+				if(callfunc_begin_i(func_id,plugin_id))
+				{
+					callfunc_push_int(id)
+					callfunc_push_int(position)
+					callfunc_end()
+				}
+			}
+			
+			return true
+		}
+	}
+	// кеширование
+	
+	// строим новый запрос
+	new query[QUERY_LENGTH]
+	
+	if(params == 5)
+	{
+		DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top,.overide_order = get_param(5))
+	}
+	else
+	{
+		DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top)
+	}
+	
+	new sql_data[6]
+	
+	sql_data[0] = SQL_GETSTATS
+	sql_data[1] = id
+	sql_data[2] = plugin_id
+	sql_data[3] = func_id
+	sql_data[4] = position
+	sql_data[5] = start_index
+	
+	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	
+	return true
 }
 
 /*
@@ -2643,6 +2801,13 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				}
 			}
 			
+			if(update_cache)
+			{
+				update_cache = false
+				
+				Cache_Stats_Update()
+				Cache_Stats_UpdateQueue()
+			}
 		}
 		case SQL_UPDATERANK:
 		{
@@ -2661,8 +2826,6 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				
 				SQL_NextRow(sqlQue)
 			}
-			
-			Cache_Stats_Update()
 		}
 		case SQL_GETSTATS: // потоковый get_stats
 		{
@@ -2681,12 +2844,15 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			{
 			}
 			
-			// вызываем хандлер другого плагина
-			if(callfunc_begin_i(data[3],data[2]))
+			if(data[3] > -1)
 			{
-				callfunc_push_int(id)
-				callfunc_push_int(data[4])
-				callfunc_end()
+				// вызываем хандлер другого плагина
+				if(callfunc_begin_i(data[3],data[2]))
+				{
+					callfunc_push_int(id)
+					callfunc_push_int(data[4])
+					callfunc_end()
+				}
 			}
 		}
 		
@@ -3809,7 +3975,7 @@ public native_get_stats(plugin_id,params)
 		{
 			set_string(6,stats_cache[CACHE_STEAMID],get_param(7))
 		}
-		
+	
 		return !stats_cache[CACHE_LAST] ? index + 1 : 0
 	}
 	// кеширование
@@ -4016,7 +4182,6 @@ public native_get_stats_thread(plugin_id,params)
 	new id = get_param(1)
 	new position = min(statsnum,get_param(2))
 	new top = get_param(3)
-	
 	new start_index = max((position - top),0)
 	
 	new callback[20]
@@ -4031,31 +4196,7 @@ public native_get_stats_thread(plugin_id,params)
 		return false
 	}
 	
-	new query[QUERY_LENGTH]
-	
-	if(params == 5)
-	{
-		DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top,.overide_order = get_param(5))
-	}
-	else
-	{
-		DB_QueryBuildGetstats(query,charsmax(query),.index = start_index,.index_count = top)
-	}
-	
-	
-	
-	new sql_data[6]
-	
-	sql_data[0] = SQL_GETSTATS
-	sql_data[1] = id
-	sql_data[2] = plugin_id
-	sql_data[3] = func_id
-	sql_data[4] = position
-	sql_data[5] = start_index
-	
-	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
-	
-	return true
+	return DB_QueryTop15(id,plugin_id,func_id,position,start_index,top,params)
 }
 
 // 0.7
