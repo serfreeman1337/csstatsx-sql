@@ -9,7 +9,7 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 8"
+#define VERSION "0.7 Dev 9"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
 #define LASTUPDATE "21, June (06), 2016"
@@ -360,7 +360,8 @@ enum _:cvar_set
 	CVAR_MAPSTATS,
 	
 	CVAR_AUTOCLEAR,
-	CVAR_CACHETIME
+	CVAR_CACHETIME,
+	CVAR_AUTOCLEAR_DAY
 }
 
 
@@ -572,6 +573,12 @@ public plugin_init()
 	*/
 	cvar[CVAR_CACHETIME] = register_cvar("csstats_sql_cachetime","-1")
 	
+	
+	/*
+	* автоматическая очистка всей игровой статистики в БД в определенный день
+	*/                               
+	cvar[CVAR_AUTOCLEAR_DAY] = register_cvar("csstats_sql_autoclear_day","0") 
+	
 	#if AMXX_VERSION_NUM < 183
 		MaxClients = get_maxplayers()
 	#endif
@@ -584,6 +591,8 @@ public plugin_init()
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
 	register_event("TextMsg","EventHook_TextMsg","a")
+	
+	register_srvcmd("csstatsx_sql_reset","SrvCmd_DBReset")
 }
 
 public plugin_cfg()
@@ -945,87 +954,31 @@ public plugin_cfg()
 	
 	if(autoclear_days > 0)
 	{
-		que_len = 0
-		
-		if(strcmp(type,"mysql") == 0)
-		{
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"DELETE `%s`",
-				tbl_name
-			)
+		DB_ClearTables(autoclear_days)
+	}
+	
+	autoclear_days = get_pcvar_num(cvar[CVAR_AUTOCLEAR_DAY])
+	
+	if(autoclear_days > 0)
+	{
+		  new s_data[10]
+		  get_time("%d",s_data,charsmax(s_data))
+		  
+		  if(str_to_num(s_data) == autoclear_days)
+		  {
+		  	s_data[0] = 0
+		  	get_vaultdata("csxsql_clear",s_data,charsmax(s_data))
 			
-			if(weapon_stats_enabled)
+			if(!str_to_num(s_data))
 			{
-				que_len += formatex(query[que_len],charsmax(query) - que_len,",`%s_weapons`",tbl_name)
+				set_vaultdata("csxsql_clear","1")
+				DB_ClearTables(-1)
 			}
-			
-			if(map_stats_enabled)
-			{
-				que_len += formatex(query[que_len],charsmax(query) - que_len,",`%s_maps`",tbl_name)
-			}
-			
-			que_len += formatex(query[que_len],charsmax(query) - que_len," FROM `%s`",
-				tbl_name
-			)
-			
-			if(weapon_stats_enabled)
-			{
-				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
-					LEFT JOIN `%s_weapons` ON `%s`.`%s` = `%s_weapons`.`%s`",
-					tbl_name,
-					tbl_name,row_names[ROW_ID],
-					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER]
-				)
-			}
-			
-			if(map_stats_enabled)
-			{
-				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
-					LEFT JOIN `%s_maps` ON `%s`.`%s` = `%s_maps`.`%s`",
-					tbl_name,
-					tbl_name,row_names[ROW_ID],
-					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER]
-				)
-			}
-			
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"WHERE `%s`.`%s` <= DATE_SUB(NOW(),INTERVAL %d DAY);",
-				tbl_name,row_names[ROW_LASTJOIN],autoclear_days
-			)
-			
-		}
-		else if(strcmp(type,"sqlite") == 0)
-		{
-			if(weapon_stats_enabled)
-			{
-				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
-					DELETE FROM `%s_weapons` WHERE `%s` IN (\
-						SELECT `%s` FROM `%s` WHERE `%s` <= DATETIME('now','-%d day')\
-					);",
-					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
-					row_names[ROW_ID],tbl_name,row_names[ROW_LASTJOIN],
-					autoclear_days
-				)
-			}
-			
-			if(map_stats_enabled)
-			{
-				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
-					DELETE FROM `%s_maps` WHERE `%s` IN (\
-						SELECT `%s` FROM `%s` WHERE `%s` <= DATETIME('now','-%d day')\
-					);",
-					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
-					row_names[ROW_ID],tbl_name,row_names[ROW_LASTJOIN],
-					autoclear_days
-				)
-			}
-			
-			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
-					DELETE FROM `%s` WHERE `%s` <= DATETIME('now','-%d day');",
-					tbl_name,row_names[ROW_LASTJOIN],autoclear_days
-			)
-		}
-		
-		sql_data[0] = SQL_AUTOCLEAR
-		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+		  }
+		  else
+		  {
+		  	set_vaultdata("csxsql_clear","0")
+		  }
 	}
 	
 	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
@@ -1114,6 +1067,150 @@ public plugin_cfg()
 		
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 	}
+}
+
+public SrvCmd_DBReset()
+{
+	DB_ClearTables(-1)
+}
+
+//
+// Очистка таблиц от неактивных записей
+//
+DB_ClearTables(by_days)
+{
+	if(by_days == -1)
+	{
+		log_amx("database reset")
+	}
+	
+	new query[QUERY_LENGTH],que_len 
+	
+	new type[10]
+	get_pcvar_string(cvar[CVAR_SQL_TYPE],type,charsmax(type))
+		
+	if(strcmp(type,"mysql") == 0)
+	{
+		que_len += formatex(query[que_len],charsmax(query) - que_len,"DELETE `%s`",
+			tbl_name
+		)
+		
+		if(weapon_stats_enabled)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,",`%s_weapons`",tbl_name)
+		}
+		
+		if(map_stats_enabled)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,",`%s_maps`",tbl_name)
+		}
+		
+		que_len += formatex(query[que_len],charsmax(query) - que_len," FROM `%s`",
+			tbl_name
+		)
+		
+		if(weapon_stats_enabled)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+				LEFT JOIN `%s_weapons` ON `%s`.`%s` = `%s_weapons`.`%s`",
+				tbl_name,
+				tbl_name,row_names[ROW_ID],
+				tbl_name,row_weapons_names[ROW_WEAPON_PLAYER]
+			)
+		}
+		
+		if(map_stats_enabled)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+				LEFT JOIN `%s_maps` ON `%s`.`%s` = `%s_maps`.`%s`",
+				tbl_name,
+				tbl_name,row_names[ROW_ID],
+				tbl_name,row_weapons_names[ROW_WEAPON_PLAYER]
+			)
+		}
+		
+		if(by_days > 0)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"WHERE `%s`.`%s` <= DATE_SUB(NOW(),INTERVAL %d DAY);",
+				tbl_name,row_names[ROW_LASTJOIN],by_days
+			)
+		}
+		else
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"WHERE 1")
+		}
+	}
+	else if(strcmp(type,"sqlite") == 0)
+	{
+		if(weapon_stats_enabled)
+		{
+			if(by_days > 0)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+						DELETE FROM `%s_weapons` WHERE `%s` IN (\
+							SELECT `%s` FROM `%s` WHERE `%s` <= DATETIME('now','-%d day')\
+						);",
+						tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
+						row_names[ROW_ID],tbl_name,row_names[ROW_LASTJOIN],
+						by_days
+				)
+			}
+			else
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+						DELETE FROM `%s_weapons` WHERE `%s` IN (\
+							SELECT `%s` FROM `%s` WHERE 1\
+						);",
+						tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
+						row_names[ROW_ID],tbl_name
+					)
+			}
+		}
+		
+		if(map_stats_enabled)
+		{
+			if(by_days > 0)
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s_maps` WHERE `%s` IN (\
+						SELECT `%s` FROM `%s` WHERE `%s` <= DATETIME('now','-%d day')\
+					);",
+					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
+					row_names[ROW_ID],tbl_name,row_names[ROW_LASTJOIN],
+					by_days
+				)
+			}
+			else
+			{
+				que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s_maps` WHERE `%s` IN (\
+						SELECT `%s` FROM `%s` WHERE 1\
+					);",
+					tbl_name,row_weapons_names[ROW_WEAPON_PLAYER],
+					row_names[ROW_ID],tbl_name
+				)
+			}
+		}
+		
+		if(by_days > 0)
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s` WHERE `%s` <= DATETIME('now','-%d day');",
+					tbl_name,row_names[ROW_LASTJOIN],by_days
+			)
+		}
+		else
+		{
+			que_len += formatex(query[que_len],charsmax(query) - que_len,"\
+					DELETE FROM `%s` WHERE 1;",tbl_name
+			)
+		}
+	}
+	
+	new sql_data[1]
+	sql_data[0] = SQL_AUTOCLEAR
+	
+	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 }
 
 public plugin_end()
