@@ -1,5 +1,5 @@
 /*
-*	CSStatsX MySQL			  	  v. 0.7
+*	CSStatsX SQL			  	  v. 0.7
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 9"
+#define VERSION "0.7 Dev 10"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "21, June (06), 2016"
+#define LASTUPDATE "23, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -3284,11 +3284,9 @@ public native_get_sestats_read_etime(plugin_id,params)
 
 public native_get_sestats_free(plugin_id,params)
 {
-	new Array:sestats = Array:get_param(1)
-	ArrayDestroy(sestats)
-	
+	new sestats = get_param_byref(1)
+	ArrayDestroy(Array:sestats)
 	set_param_byref(1,0)
-	
 	return true
 }
 
@@ -3478,8 +3476,10 @@ public native_get_sestats_thread_sql(plugin_id,params)
 	
 	new query[QUERY_LENGTH]
 	
-	formatex(query,charsmax(query),"SELECT * FROM `%s_maps` WHERE `player_id` = '%d' LIMIT %d",
-		tbl_name,player_db_id,limit
+	formatex(query,charsmax(query),"SELECT * FROM `%s_maps` WHERE `%s` = '%d' ORDER BY `%s` DESC LIMIT %d",
+		tbl_name,
+		row_weapons_names[ROW_WEAPON_PLAYER],player_db_id,
+		row_names[ROW_FIRSTJOIN],limit
 	)
 	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,3 + data_size)
 	
