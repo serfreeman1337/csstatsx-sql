@@ -9,7 +9,7 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7 Dev 10"
+#define VERSION "0.7"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
 #define LASTUPDATE "23, June (06), 2016"
