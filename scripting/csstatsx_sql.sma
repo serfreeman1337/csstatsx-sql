@@ -1,5 +1,5 @@
 /*
-*	CSStatsX SQL			  	  v. 0.7
+*	CSStatsX SQL			  	v. 0.7.1
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -9,10 +9,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7"
+#define VERSION "0.7.1"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "23, June (06), 2016"
+#define LASTUPDATE "26, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -451,7 +451,7 @@ new bool:weapon_stats_enabled,bool:map_stats_enabled
 	ArrayPushArray(weapons_data,weapon_info);\
 	TrieSetCell(log_ids_trie,%2,ArraySize(weapons_data) - 1)
 
-public plugin_init()
+public plugin_precache()
 {
 	register_plugin(PLUGIN,VERSION,AUTHOR)
 	register_cvar("csstatsx_sql", VERSION, FCVAR_SERVER | FCVAR_SPONLY | FCVAR_UNLOGGED)
@@ -572,8 +572,7 @@ public plugin_init()
 	*	0 - отключить использование кеша
 	*/
 	cvar[CVAR_CACHETIME] = register_cvar("csstats_sql_cachetime","-1")
-	
-	
+
 	/*
 	* автоматическая очистка всей игровой статистики в БД в определенный день
 	*/                               
@@ -582,7 +581,10 @@ public plugin_init()
 	#if AMXX_VERSION_NUM < 183
 		MaxClients = get_maxplayers()
 	#endif
-	
+}
+
+public plugin_init()
+{
 	register_logevent("LogEventHooK_RoundEnd", 2, "1=Round_End") 
 	register_logevent("LogEventHooK_RoundStart", 2, "1=Round_Start") 
 	
@@ -593,12 +595,57 @@ public plugin_init()
 	register_event("TextMsg","EventHook_TextMsg","a")
 	
 	register_srvcmd("csstats_sql_reset","SrvCmd_DBReset")
+	
+	new weapon_info[WEAPON_INFO_SIZE]
+	
+	//
+	log_ids_trie = TrieCreate()
+	// 	               is_meele  + название +   логнейм
+	weapons_data = ArrayCreate(WEAPON_INFO_SIZE)
+	
+	REG_INFO(false,"","")
+	REG_INFO(false,"p228","p228")
+	REG_INFO(false,"","")
+	REG_INFO(false,"scout","scout")
+	REG_INFO(false,"hegrenade","grenade")
+	REG_INFO(false,"xm1014","xm1014")
+	REG_INFO(false,"c4","weapon_c4")
+	REG_INFO(false,"mac10","mac10")
+	REG_INFO(false,"aug","aug")
+	REG_INFO(false,"sgrenade","grenade")
+	REG_INFO(false,"elite","elite")
+	REG_INFO(false,"fiveseven","fiveseven")
+	REG_INFO(false,"ump45","ump45")
+	REG_INFO(false,"sg550","sg550")
+	REG_INFO(false,"galil","galil")
+	REG_INFO(false,"famas","famas")
+	REG_INFO(false,"usp","usp")
+	REG_INFO(false,"glock18","glock18")
+	REG_INFO(false,"awp","awp")
+	REG_INFO(false,"mp5navy","mp5navy")
+	REG_INFO(false,"m249","m249")
+	REG_INFO(false,"m3","m3")
+	REG_INFO(false,"m4a1","m4a1")
+	REG_INFO(false,"tmp","tmp")
+	REG_INFO(false,"g3sg1","g3sg1")
+	REG_INFO(false,"flashbang","flashbang")
+	REG_INFO(false,"deagle","deagle")
+	REG_INFO(false,"sg552","sg552")
+	REG_INFO(false,"ak47","ak47")
+	REG_INFO(true,"knife","knife")
+	REG_INFO(false,"p90","p90")
 }
 
-public plugin_cfg()
+#if AMXX_VERSION_NUM < 183
+	public plugin_cfg()
+#else
+	public OnConfigsExecuted()
+#endif
 {
-	// форсируем выполнение exec addons/amxmodx/configs/amxx.cfg
-	server_exec()
+	#if AMXX_VERSION_NUM < 183
+		// форсируем выполнение exec addons/amxmodx/configs/amxx.cfg
+		server_exec()
+	#endif
 	
 	// читаем квары на подключение
 	new host[128],user[64],pass[64],db[64],type[10]
@@ -1009,48 +1056,6 @@ public plugin_cfg()
 		
 		register_forward(FM_SetModel,"FMHook_SetModel",true)
 	}
-	
-	new weapon_info[WEAPON_INFO_SIZE]
-	
-	// 
-	
-	
-	
-	log_ids_trie = TrieCreate()
-	// 	               is_meele  + название +   логнейм
-	weapons_data = ArrayCreate(WEAPON_INFO_SIZE)
-	
-	REG_INFO(false,"","")
-	REG_INFO(false,"p228","p228")
-	REG_INFO(false,"","")
-	REG_INFO(false,"scout","scout")
-	REG_INFO(false,"hegrenade","grenade")
-	REG_INFO(false,"xm1014","xm1014")
-	REG_INFO(false,"c4","weapon_c4")
-	REG_INFO(false,"mac10","mac10")
-	REG_INFO(false,"aug","aug")
-	REG_INFO(false,"sgrenade","grenade")
-	REG_INFO(false,"elite","elite")
-	REG_INFO(false,"fiveseven","fiveseven")
-	REG_INFO(false,"ump45","ump45")
-	REG_INFO(false,"sg550","sg550")
-	REG_INFO(false,"galil","galil")
-	REG_INFO(false,"famas","famas")
-	REG_INFO(false,"usp","usp")
-	REG_INFO(false,"glock18","glock18")
-	REG_INFO(false,"awp","awp")
-	REG_INFO(false,"mp5navy","mp5navy")
-	REG_INFO(false,"m249","m249")
-	REG_INFO(false,"m3","m3")
-	REG_INFO(false,"m4a1","m4a1")
-	REG_INFO(false,"tmp","tmp")
-	REG_INFO(false,"g3sg1","g3sg1")
-	REG_INFO(false,"flashbang","flashbang")
-	REG_INFO(false,"deagle","deagle")
-	REG_INFO(false,"sg552","sg552")
-	REG_INFO(false,"ak47","ak47")
-	REG_INFO(true,"knife","knife")
-	REG_INFO(false,"p90","p90")
 	
 	// 0.7
 	
@@ -3148,7 +3153,7 @@ Info_Weapon_GetLog(wpn_id,weapon_name[],len)
 	}
 	
 #define CHECK_WEAPON(%1) \
-	if(%1 < 0 || %1 > ArraySize(weapons_data)){\
+	if(!(0 <= %1 < ArraySize(weapons_data))){\
 		log_error(AMX_ERR_NATIVE,"Invalid weapon id %d",%1);\
 		return 0;\
 	}
@@ -3792,6 +3797,8 @@ public native_xmod_get_wpnlogname(plugin_id,params)
 	new weapon_name[MAX_NAME_LENGTH]
 	Info_Weapon_GetLog(wpn_id,weapon_name,get_param(3))
 	
+	set_string(2,weapon_name,get_param(3))
+	
 	return strlen(weapon_name)
 }
 
@@ -3970,20 +3977,6 @@ unpack_astats(attacker,victim,stats[STATS_END],hits[HIT_END],vname[],vname_len)
 	}
 	
 	copy(vname,vname_len,player_astats[victim][attacker][stats_i])
-}
-
-public plugin_precache()
-{
-	new amxx_version[10]
-	get_amxx_verstring(amxx_version,charsmax(amxx_version))
-	    
-	if(contain(amxx_version,"1.8.1") != -1)
-	{
-		log_amx("idite nahooy")
-		
-		server_cmd("quit")
-		server_exec()
-	}
 }
 
 /*
