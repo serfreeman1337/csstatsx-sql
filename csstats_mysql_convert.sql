@@ -47,3 +47,14 @@ ALTER TABLE `csstats_players`
 	DROP `ar_anew`;
 	
 ALTER TABLE `csstats_players` CHANGE `steamid` `steamid` VARCHAR(30)   CHARACTER SET utf8 COLLATE utf8_unicode_ci NOT NULL AFTER `id`, CHANGE `skill` `skill` FLOAT   NOT NULL DEFAULT '0' AFTER `ip`, CHANGE `connection_time` `connection_time` INT(11)   NOT NULL DEFAULT '0' AFTER `h_7`
+
+ALTER TABLE `csstats_players`
+	ADD `connects` INT NOT NULL DEFAULT '0' AFTER `connection_time`,
+	ADD `roundt` INT NOT NULL DEFAULT '0' AFTER `connects`,
+	ADD `wint` INT NOT NULL DEFAULT '0' AFTER `roundt`,
+	ADD `roundct` INT NOT NULL DEFAULT '0' AFTER `wint`,
+	ADD `winct` INT NOT NULL DEFAULT '0' AFTER `roundct`,
+	ADD `assists` INT NOT NULL DEFAULT '0' AFTER `winct`;
+	ADD `session_id` int(11) DEFAULT NULL AFTER `last_join`,
+	ADD `session_map` varchar(32) DEFAULT NULL AFTER `session_id`
+;

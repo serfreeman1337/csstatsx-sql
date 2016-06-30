@@ -29,6 +29,7 @@ CREATE TABLE `csstats` (
 	`wint` INT NOT NULL DEFAULT '0',
 	`roundct` INT NOT NULL DEFAULT '0',
 	`winct` INT NOT NULL DEFAULT '0',
+	`assists` INT NOT NULL DEFAULT '0',
 	`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
 	`session_id` int(11) DEFAULT NULL,

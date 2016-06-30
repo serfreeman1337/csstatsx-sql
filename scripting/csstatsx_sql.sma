@@ -1,5 +1,5 @@
 /*
-*	CSStatsX SQL			  	v. 0.7.1
+*	CSStatsX SQL			  	v. 0.7.2
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -7,12 +7,13 @@
 #include <sqlx>
 
 #include <fakemeta>
+#include <hamsandwich>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.1"
+#define VERSION "0.7.2"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "26, June (06), 2016"
+#define LASTUPDATE "30, June (06), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -87,7 +88,9 @@ enum _:row_ids		// столбцы таблицы
 	ROW_WINT,
 	ROW_ROUNDCT,
 	ROW_WINCT,
-	// 0.7
+	
+	// 0.7.2
+	ROW_ASSISTS,
 	
 	ROW_FIRSTJOIN,
 	ROW_LASTJOIN,
@@ -131,7 +134,9 @@ new const row_names[row_ids][] = // имена столбцов
 	"wint",
 	"roundct",
 	"winct",
-	// 0.7
+	
+	// 0.7.2
+	"assists",
 	
 	"first_join",
 	"last_join",
@@ -256,6 +261,7 @@ enum _:row_maps_ids
 	ROW_MAP_WINT,
 	ROW_MAP_ROUNDCT,
 	ROW_MAP_WINCT,
+	ROW_MAP_ASSISTS,
 	ROW_MAP_FIRSTJOIN,
 	ROW_MAP_LASTJOIN,
 }
@@ -265,12 +271,16 @@ enum _:row_maps_ids
 // 0.7
 enum _:STATS3_END
 {
+	STATS3_CURRENTTEAM,	// тек. команда игрока (определяется в начале раунда)
+	
 	STATS3_CONNECT,		// подключения к серверу
 	STATS3_ROUNDT,		// раунды за теров
 	STATS3_WINT,		// побед за теров
 	STATS3_ROUNDCT,		// раунды за спецов
 	STATS3_WINCT,		// побед за спецов
-	STATS3_CURRENTTEAM	// тек. команда игрока (определяется в начале раунда)
+	
+	// 0.7.2
+	STATS3_ASSIST		// помощь в убийстве
 }
 
 
@@ -361,7 +371,10 @@ enum _:cvar_set
 	
 	CVAR_AUTOCLEAR,
 	CVAR_CACHETIME,
-	CVAR_AUTOCLEAR_DAY
+	CVAR_AUTOCLEAR_DAY,
+	
+	// 0.7.2
+	CVAR_ASSISTHP
 }
 
 
@@ -425,6 +438,7 @@ new FW_BExplode
 new FW_BDefusing
 new FW_BDefused
 new FW_GThrow
+new FW_Assist
 
 new dummy_ret
 
@@ -578,6 +592,11 @@ public plugin_precache()
 	*/                               
 	cvar[CVAR_AUTOCLEAR_DAY] = register_cvar("csstats_sql_autoclear_day","0") 
 	
+	/*
+	* урон для засчитывания ассиста
+	*/
+	cvar[CVAR_ASSISTHP] = register_cvar("csstats_sql_assisthp","50")
+	
 	#if AMXX_VERSION_NUM < 183
 		MaxClients = get_maxplayers()
 	#endif
@@ -634,12 +653,14 @@ public plugin_init()
 	REG_INFO(false,"ak47","ak47")
 	REG_INFO(true,"knife","knife")
 	REG_INFO(false,"p90","p90")
+	
+	RegisterHam(Ham_Spawn,"player","HamHook_PlayerSpawn",true)
 }
 
 #if AMXX_VERSION_NUM < 183
 	public plugin_cfg()
 #else
-	public OnConfigsExecuted()
+	public OnAutoConfigsBuffered()
 #endif
 {
 	#if AMXX_VERSION_NUM < 183
@@ -656,14 +677,24 @@ public plugin_init()
 	get_pcvar_string(cvar[CVAR_SQL_TABLE],tbl_name,charsmax(tbl_name))
 	get_pcvar_string(cvar[CVAR_SQL_TYPE],type,charsmax(type))
 	
-	SQL_SetAffinity(type)
+	// и снова здравствуй wopox3 
+	if(!SQL_SetAffinity(type))
+	{
+		new error_msg[128]
+		formatex(error_msg,charsmax(error_msg),"failed to use ^"%s^" for db driver",
+			error_msg)
+			
+		set_fail_state(error_msg)
+		
+		return
+	}
 	
 	sql = SQL_MakeDbTuple(host,user,pass,db)
 	
 	weapon_stats_enabled = get_pcvar_num(cvar[CVAR_WEAPONSTATS]) == 1? true : false
 	map_stats_enabled = get_pcvar_num(cvar[CVAR_MAPSTATS]) == 1 ? true : false
 	
-	new query[QUERY_LENGTH],que_len
+	new query[QUERY_LENGTH * 2],que_len
 	
 	new sql_data[1]
 	sql_data[0] = SQL_DUMMY
@@ -741,13 +772,15 @@ public plugin_init()
 					`%s` int(11) NOT NULL DEFAULT '0',\
 					`%s` int(11) NOT NULL DEFAULT '0',\
 					`%s` int(11) NOT NULL DEFAULT '0',\
+					`%s` int(11) NOT NULL DEFAULT '0',\
 					`%s` int(11) NOT NULL DEFAULT '0',",
 					
 					row_names[ROW_CONNECTS],
 					row_names[ROW_ROUNDT],
 					row_names[ROW_WINT],
 					row_names[ROW_ROUNDCT],
-					row_names[ROW_WINCT]
+					row_names[ROW_WINCT],
+					row_names[ROW_ASSISTS]
 			)
 			
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
@@ -843,6 +876,7 @@ public plugin_init()
 					`%s`	INTEGER NOT NULL DEFAULT 0,\
 					`%s`	INTEGER NOT NULL DEFAULT 0,\
 					`%s`	INTEGER NOT NULL DEFAULT 0,\
+					`%s`	INTEGER NOT NULL DEFAULT 0,\
 					`%s`	INTEGER NOT NULL DEFAULT 0,",
 					
 					row_names[ROW_ONLINETIME],
@@ -850,7 +884,8 @@ public plugin_init()
 					row_names[ROW_ROUNDT],
 					row_names[ROW_WINT],
 					row_names[ROW_ROUNDCT],
-					row_names[ROW_WINCT]
+					row_names[ROW_WINCT],
+					row_names[ROW_ASSISTS]
 			)
 					
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\
@@ -1056,6 +1091,9 @@ public plugin_init()
 		
 		register_forward(FM_SetModel,"FMHook_SetModel",true)
 	}
+	
+	// 0.7.2
+	FW_Assist = CreateMultiForward("client_assist_sql",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL)
 	
 	// 0.7
 	
@@ -1267,6 +1305,11 @@ public client_disconnected(id)
 #endif
 {
 	DB_SavePlayerData(id)
+}
+
+public HamHook_PlayerSpawn(id)
+{
+	reset_user_wstats(id)
 }
 
 //
@@ -1504,6 +1547,18 @@ public FMHook_SetModel(ent,model[])
 }
 
 //
+// Учет ассистов
+//
+Stats_SaveAssist(player,victim,assisted)
+{
+	player_data[player][PLAYER_STATS3][STATS3_ASSIST] ++
+	
+	ExecuteForward(FW_Assist,dummy_ret,player,victim,assisted)
+	
+	return true
+}
+
+//
 // Учет выстрелов
 //
 Stats_SaveShot(player,wpn_id)
@@ -1624,6 +1679,20 @@ Stats_SaveKill(killer,victim,wpn_id,hit_place)
 	player_wstats[victim][0][STATS_DEATHS] ++
 	player_wrstats[victim][0][STATS_DEATHS] ++
 	
+	// смотрим ассисты
+	for(new i = 1,assist_hp = get_pcvar_num(cvar[CVAR_ASSISTHP]); (assist_hp) && (i <= MAX_PLAYERS) ; i++)
+	{
+		if(i == killer)
+		{
+			continue
+		}
+		
+		if(player_astats[victim][i][STATS_DMG] >= assist_hp)
+		{
+			Stats_SaveAssist(i,victim,killer)
+		}
+	}
+	
 	new victim_wpn_id = get_user_weapon(victim)
 	
 	if(victim_wpn_id)
@@ -1634,7 +1703,6 @@ Stats_SaveKill(killer,victim,wpn_id,hit_place)
 	
 	if(FW_Death)
 		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
-		
 	
 	if(player_data[killer][PLAYER_LOADSTATE] == LOAD_OK && player_data[victim][PLAYER_LOADSTATE] == LOAD_OK) // скилл расчитывается только при наличии статистики из БД
 	{
@@ -1748,7 +1816,6 @@ public LogEventHooK_RoundStart()
 	for(new i,player ; i < pnum ; i++)
 	{
 		player = players[i]
-		reset_user_wstats(player)
 		
 		// определяем в какой команде игрок
 		switch(get_user_team(player))
@@ -1948,26 +2015,7 @@ DB_SavePlayerData(id,bool:reload = false)
 					to_save ++
 				}
 			}
-			
-			
-			// 
-			player_data[id][PLAYER_ONLINE] += get_user_time(id) - player_data[id][PLAYER_ONLINEDIFF]
-			player_data[id][PLAYER_ONLINEDIFF] = get_user_time(id)
-			
-			new diffonline = player_data[id][PLAYER_ONLINE]- player_data[id][PLAYER_ONLINELAST]
-			player_data[id][PLAYER_ONLINELAST] = player_data[id][PLAYER_ONLINE]
-			
-			if(diffonline)
-			{
-				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %d",
-					!to_save ? " " : ",",
-					row_names[ROW_ONLINETIME],
-					row_names[ROW_ONLINETIME],
-					diffonline
-				)
-				
-				//to_save ++
-			}
+		
 			
 			new Float:diffskill = player_data[id][PLAYER_SKILL] - player_data[id][PLAYER_SKILLLAST]
 			player_data[id][PLAYER_SKILLLAST] = _:player_data[id][PLAYER_SKILL]
@@ -2006,11 +2054,8 @@ DB_SavePlayerData(id,bool:reload = false)
 			// 0.7
 			new diffstats3[STATS3_END]
 			
-			for(i = 0 ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
+			for(i = STATS3_CONNECT ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
 			{
-				if(i == STATS3_CURRENTTEAM) // техническая переменная
-					continue
-				
 				diffstats3[i] = player_data[id][PLAYER_STATS3][i] - player_data[id][PLAYER_STATS3LAST][i]
 				player_data[id][PLAYER_STATS3LAST][i] = player_data[id][PLAYER_STATS3][i]
 				
@@ -2018,15 +2063,16 @@ DB_SavePlayerData(id,bool:reload = false)
 				{
 					len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + '%d'",
 						!to_save ? " " : ",",
-						row_names[i + ROW_CONNECTS],row_names[i + ROW_CONNECTS],
+						row_names[(i - 1) + ROW_CONNECTS],row_names[(i - 1) + ROW_CONNECTS],
 						diffstats3[i]
 					)
-						
-					// не считаем залетных
-					if(diffstats[i] != STATS3_CONNECT)
-						to_save ++
+					
+					to_save ++
 				}
 			}
+			
+			// не сохраняем только подключения
+			to_save --
 			
 			// 0.7 задаем поля для тригерром статистики по картам
 			if(session_id)
@@ -2036,6 +2082,25 @@ DB_SavePlayerData(id,bool:reload = false)
 						row_names[ROW_SESSIONID],session_id,
 						row_names[ROW_SESSIONNAME],session_map
 				)
+			}
+			
+			// 
+			player_data[id][PLAYER_ONLINE] += get_user_time(id) - player_data[id][PLAYER_ONLINEDIFF]
+			player_data[id][PLAYER_ONLINEDIFF] = get_user_time(id)
+			
+			new diffonline = player_data[id][PLAYER_ONLINE]- player_data[id][PLAYER_ONLINELAST]
+			player_data[id][PLAYER_ONLINELAST] = player_data[id][PLAYER_ONLINE]
+			
+			if(diffonline)
+			{
+				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %d",
+					!to_save ? " " : ",",
+					row_names[ROW_ONLINETIME],
+					row_names[ROW_ONLINETIME],
+					diffonline
+				)
+				
+				//to_save ++
 			}
 			
 			// обновляем время последнего подключения, ник, ип и steamid
@@ -2533,9 +2598,9 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 				stats_cache[CACHE_HITS][i - ROW_H0] = hits[i - ROW_H0] = SQL_ReadResult(sqlQue,i)
 			}
 			// 0.7
-			case ROW_CONNECTS..ROW_WINCT:
+			case ROW_CONNECTS..ROW_ASSISTS:
 			{
-				stats_cache[CACHE_STATS3][i - ROW_CONNECTS] = stats3[i - ROW_CONNECTS] = SQL_ReadResult(sqlQue,i)
+				stats_cache[CACHE_STATS3][((i - ROW_CONNECTS) + 1)] = stats3[((i - ROW_CONNECTS) + 1)] = SQL_ReadResult(sqlQue,i)
 			}
 			case ROW_FIRSTJOIN..ROW_LASTJOIN:
 			{
@@ -2819,12 +2884,9 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				}
 				
 				// 0.7
-				for(new i ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
+				for(new i = STATS3_CONNECT ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
 				{
-					if(i == STATS3_CURRENTTEAM)
-						break
-					
-					player_data[id][PLAYER_STATS3][i] = player_data[id][PLAYER_STATS3LAST][i] = SQL_ReadResult(sqlQue,i + ROW_CONNECTS)
+					player_data[id][PLAYER_STATS3][i] = player_data[id][PLAYER_STATS3LAST][i] = SQL_ReadResult(sqlQue,(i - 1) + ROW_CONNECTS)
 					
 					// плюсуем стату подключений
 					if(i == STATS3_CONNECT)
@@ -3029,7 +3091,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 						case ROW_MAP_KILLS..ROW_MAP_DMG: sestats_data[SESTATS_STATS][(i - ROW_MAP_KILLS)] = SQL_ReadResult(sqlQue,i)
 						case ROW_MAP_H0..ROW_MAP_H7: sestats_data[SESTATS_HITS][(i - ROW_MAP_H0)] = SQL_ReadResult(sqlQue,i)
 						case ROW_MAP_BOMBDEF..ROW_MAP_BOMBEXPLOSIONS: sestats_data[SESTATS_STATS2][(i - ROW_MAP_BOMBDEF)] = SQL_ReadResult(sqlQue,i)
-						case ROW_MAP_ROUNDT..ROW_MAP_WINCT: sestats_data[SESTATS_STATS3][(i - ROW_MAP_ROUNDT)] = SQL_ReadResult(sqlQue,i)
+						case ROW_MAP_ROUNDT..ROW_MAP_ASSISTS: sestats_data[SESTATS_STATS3][((i - ROW_MAP_ROUNDT) + 1)] = SQL_ReadResult(sqlQue,i)
 						case ROW_MAP_ONLINETIME: sestats_data[SESTATS_ONLINETIME] = SQL_ReadResult(sqlQue,i)
 						case ROW_MAP_FIRSTJOIN,ROW_LASTJOIN:
 						{
@@ -3221,6 +3283,9 @@ public plugin_natives()
 	register_native("get_sestats_free","native_get_sestats_free")
 	register_native("get_user_firstjoin_sql","native_get_user_firstjoin_sql")
 	register_native("get_user_lastjoin_sql","native_get_user_lastjoin_sql")
+	
+	// 0.7.2
+	register_native("xmod_get_maxweapons_sql","native_xmod_get_maxweapons")
 }
 
 public native_get_user_firstjoin_sql(plugin_id,params)
@@ -3513,9 +3578,11 @@ public native_get_user_wstats_sql(plugin_id,params)
 	
 	new stats[8],bh[8]
 	
+	const stats_index_last = (STATS_END + HIT_END)
+	
 	for(new i ; i < STATS_END ; i++)
 	{
-		stats[i] = player_awstats[player_id][weapon_id][i]
+		stats[i] = player_awstats[player_id][weapon_id][i] + player_awstats[player_id][weapon_id][i + stats_index_last]
 	}
 	
 	// игрок не пользовался этим оружием
@@ -3526,7 +3593,7 @@ public native_get_user_wstats_sql(plugin_id,params)
 	
 	for(new i = STATS_END ; i < (STATS_END + HIT_END) ; i ++)
 	{
-		bh[(i - STATS_END)] = player_awstats[player_id][weapon_id][i]
+		bh[(i - STATS_END)] = player_awstats[player_id][weapon_id][i] + player_awstats[player_id][weapon_id][i + stats_index_last]
 	}
 	
 	set_array(3,stats,sizeof stats)
@@ -4495,7 +4562,6 @@ reset_user_wstats(index)
 	for(new i ; i < MAX_PLAYERS + 1 ;i++)
 	{
 		arrayset(player_vstats[index][i],0,sizeof player_vstats[][])
-		arrayset(player_vstats[i][index],0,sizeof player_vstats[][])
 		arrayset(player_astats[index][i],0,sizeof player_astats[][])
 	}
 	

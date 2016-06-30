@@ -20,12 +20,14 @@ enum _:
 
 enum _:STATS3_END
 {
+	STATS3_CURRENTTEAM,		// do not use
+	
 	STATS3_CONNECT,			// player connects
 	STATS3_ROUNDT,			// rounds as t
 	STATS3_WINT,				// wins as t
 	STATS3_ROUNDCT,			// round as ct
 	STATS3_WINCT,				// win as ct
-	STATS3_CURRENTTEAM		// do not use
+	STATS3_ASSISTS				// player assists
 }
 
 //
@@ -35,6 +37,15 @@ native get_statsnum_sql()
 native get_user_stats_sql(index, stats[8], bodyhits[8])
 native get_stats_sql(index, stats[8], bodyhits[8], name[], len, authid[] = "", authidlen = 0)
 native get_stats2_sql(index, stats2[4], authid[] = "", authidlen = 0)
+native xmod_get_maxweapons_sql()
+
+//
+// Called after a client help to kill another client.
+// 	@player		Player client index
+//	@victim		Victim client index
+//	@victim		Assisted client index
+//
+forward client_assist_sql(player,victim,assisted)
 
 //
 // Perfrom thread query for top15 stats
