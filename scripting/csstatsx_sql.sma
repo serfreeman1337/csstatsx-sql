@@ -2078,7 +2078,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			if(session_id)
 			{
 				len += formatex(query[len],charsmax(query) - len,"%s`%s` = '%d',`%s` = '%s'",
-						!to_save ? " " : ",",
+						to_save <= 0 ? " " : ",",
 						row_names[ROW_SESSIONID],session_id,
 						row_names[ROW_SESSIONNAME],session_map
 				)
@@ -2094,7 +2094,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			if(diffonline)
 			{
 				len += formatex(query[len],charsmax(query) - len,"%s`%s` = `%s` + %d",
-					!to_save ? " " : ",",
+					to_save <= 0 ? " " : ",",
 					row_names[ROW_ONLINETIME],
 					row_names[ROW_ONLINETIME],
 					diffonline
@@ -2125,7 +2125,7 @@ DB_SavePlayerData(id,bool:reload = false)
 			
 			len += formatex(query[len],charsmax(query) - len,"WHERE `%s` = '%d'",row_names[ROW_ID],player_data[id][PLAYER_ID])
 			
-			if(!to_save) // нечего сохранять
+			if(to_save <= 0) // нечего сохранять
 			{
 				if(player_data[id][PLAYER_LOADSTATE] == LOAD_UPDATE) // релоад для обновления ника
 				{
