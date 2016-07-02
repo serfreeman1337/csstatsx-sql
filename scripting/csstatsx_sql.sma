@@ -1,5 +1,5 @@
 /*
-*	CSStatsX SQL			  	v. 0.7.2
+*	CSStatsX SQL			  	v. 0.7.3
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -10,10 +10,10 @@
 #include <hamsandwich>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.2"
+#define VERSION "0.7.3"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "30, June (06), 2016"
+#define LASTUPDATE "02, Jule (07), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -31,6 +31,7 @@ new Handle:sql_con
 enum _:sql_que_type	// тип sql запроса
 {
 	SQL_DUMMY,
+	SQL_INITDB,	// автоматическое созданием таблиц
 	SQL_LOAD,	// загрузка статистики
 	SQL_UPDATE,	// обновление
 	SQL_INSERT,	// внесение новой записи
@@ -438,7 +439,12 @@ new FW_BExplode
 new FW_BDefusing
 new FW_BDefused
 new FW_GThrow
+
+// 0.7.2
 new FW_Assist
+
+// 0.7.3
+new FW_Initialized
 
 new dummy_ret
 
@@ -455,7 +461,12 @@ new Trie:log_ids_trie			// дерево для быстрого определе
 // 0.7
 new Array:stats_cache_queue
 
+// 0.7.1
 new bool:weapon_stats_enabled,bool:map_stats_enabled
+
+// 0.7.3
+new init_seq = -1
+new bool:is_ready = false
 
 // макрос для помощи реагистрации инфы по оружию
 #define REG_INFO(%0,%1,%2)\
@@ -691,13 +702,19 @@ public plugin_init()
 	
 	sql = SQL_MakeDbTuple(host,user,pass,db)
 	
+	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
+	
+	#if AMXX_VERSION_NUM >= 183
+		SQL_SetCharset(sql,"utf8")
+	#endif
+	
 	weapon_stats_enabled = get_pcvar_num(cvar[CVAR_WEAPONSTATS]) == 1? true : false
 	map_stats_enabled = get_pcvar_num(cvar[CVAR_MAPSTATS]) == 1 ? true : false
 	
 	new query[QUERY_LENGTH * 2],que_len
 	
 	new sql_data[1]
-	sql_data[0] = SQL_DUMMY
+	sql_data[0] = SQL_INITDB
 
 	// запрос на создание таблицы
 	if(get_pcvar_num(cvar[CVAR_SQL_CREATE_DB]))
@@ -905,6 +922,7 @@ public plugin_init()
 			set_fail_state("invalid ^"csstats_sql_type^" cvar value")
 		}
 		
+		DB_AddInitSeq()
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 		
 		if(weapon_stats_enabled)
@@ -1026,48 +1044,13 @@ public plugin_init()
 			
 			if(que_len)
 			{
+				DB_AddInitSeq()
 				SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 			}
 		}
 	}
 	
-	// 0.7
-	new autoclear_days = get_pcvar_num(cvar[CVAR_AUTOCLEAR])
-	
-	if(autoclear_days > 0)
-	{
-		DB_ClearTables(autoclear_days)
-	}
-	
-	autoclear_days = get_pcvar_num(cvar[CVAR_AUTOCLEAR_DAY])
-	
-	if(autoclear_days > 0)
-	{
-		  new s_data[10]
-		  get_time("%d",s_data,charsmax(s_data))
-		  
-		  if(str_to_num(s_data) == autoclear_days)
-		  {
-		  	s_data[0] = 0
-		  	get_vaultdata("csxsql_clear",s_data,charsmax(s_data))
-			
-			if(!str_to_num(s_data))
-			{
-				set_vaultdata("csxsql_clear","1")
-				DB_ClearTables(-1)
-			}
-		  }
-		  else
-		  {
-		  	set_vaultdata("csxsql_clear","0")
-		  }
-	}
-	
-	// для поддержки utf8 ников требуется AMXX 1.8.3-dev-git3799 или выше
-	
-	#if AMXX_VERSION_NUM >= 183
-	SQL_SetCharset(sql,"utf8")
-	#endif
+	DB_AutoClearOpt()
 	
 	// обновление статистики в БД каждые n сек
 	if(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) > 0)
@@ -1095,6 +1078,9 @@ public plugin_init()
 	// 0.7.2
 	FW_Assist = CreateMultiForward("client_assist_sql",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL)
 	
+	// 0.7.3
+	FW_Initialized = CreateMultiForward("csxsql_initialized",ET_IGNORE)
+	
 	// 0.7
 	
 	//
@@ -1108,7 +1094,106 @@ public plugin_init()
 			tbl_name
 		)
 		
+		DB_AddInitSeq()
 		SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
+	}
+	
+	// защита от ретардов, которые не читаю README
+	if(
+		(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) == -2) ||
+		(get_pcvar_num(cvar[CVAR_UPDATESTYLE]) == 0)
+	)
+	{
+		// выключаем кеширование
+		set_pcvar_num(cvar[CVAR_CACHETIME],0)
+	}
+	
+	DB_InitSeq()
+}
+
+//
+// последовательность перед началом работы плагина
+//
+DB_AddInitSeq()
+{
+	init_seq --
+}
+
+//
+// проверяем выполнение последовательности инициализации
+//
+DB_InitSeq()
+{
+	if(init_seq ==0)
+	{
+		log_amx("!?!?!?!?!?")
+		return
+	}
+	
+	init_seq ++
+	
+	// все выполнено, начинаем работу
+	if(init_seq == 0)
+	{
+		ExecuteForward(FW_Initialized,dummy_ret)
+	}
+}
+
+//
+// Функция очистки БД от неактивных игроков
+//
+DB_AutoClearOpt()
+{
+	// 0.7
+	new autoclear_days = get_pcvar_num(cvar[CVAR_AUTOCLEAR])
+	
+	if(autoclear_days > 0)
+	{
+		DB_ClearTables(autoclear_days)
+	}
+	
+	// полные сброс статистики в определенный день
+	autoclear_days = get_pcvar_num(cvar[CVAR_AUTOCLEAR_DAY])
+	
+	if(autoclear_days > 0)
+	{
+		  new s_data[10]
+		  get_time("%d",s_data,charsmax(s_data))
+		  
+		  if(str_to_num(s_data) == autoclear_days)
+		  {
+		  	s_data[0] = 0
+		  	get_vaultdata("csxsql_clear",s_data,charsmax(s_data))
+			
+			// проверяем не было ли сброса
+			if(!str_to_num(s_data))
+			{
+				set_vaultdata("csxsql_clear","1")
+				DB_ClearTables(-1)
+			}
+		  }
+		  /// очищяем проверку на сброс
+		  else
+		  {
+		  	set_vaultdata("csxsql_clear","0")
+		  }
+	}
+}
+
+//
+// Начало работы с БД
+//
+public csxsql_initialized()
+{
+	is_ready = true
+	
+	new players[MAX_PLAYERS],pnum
+	get_players(players,pnum)
+	
+	// загружаем стату игроков
+	for(new i ; i < pnum ; i++)
+	{ 
+		client_putinserver(players[i])
 	}
 }
 
@@ -1253,6 +1338,7 @@ DB_ClearTables(by_days)
 	new sql_data[1]
 	sql_data[0] = SQL_AUTOCLEAR
 	
+	DB_AddInitSeq()
 	SQL_ThreadQuery(sql,"SQL_Handler",query,sql_data,sizeof sql_data)
 }
 
@@ -1282,6 +1368,12 @@ public plugin_end()
 */
 public client_putinserver(id)
 {
+	// ждем начала работы с БД
+	if(!is_ready)
+	{
+		return PLUGIN_CONTINUE
+	}
+	
 	reset_user_allstats(id)
 	reset_user_wstats(id)
 	
@@ -1293,6 +1385,8 @@ public client_putinserver(id)
 	}
 	
 	DB_LoadPlayerData(id)
+	
+	return PLUGIN_CONTINUE
 }
 
 /*
@@ -2829,6 +2923,10 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 	
 	switch(data[0])
 	{
+		case SQL_INITDB:
+		{
+			DB_InitSeq()
+		}
 		case SQL_LOAD: // загрзука статистики игрока
 		{
 			new id = data[1]
@@ -3068,6 +3166,8 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 		{
 			session_id = SQL_ReadResult(sqlQue,0) + 1
 			get_mapname(session_map,charsmax(session_map))
+			
+			DB_InitSeq()
 		}
 		// get_sestats_thread_sql
 		case SQL_GETSESTATS:
@@ -3144,6 +3244,8 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 					SQL_AffectedRows(sqlQue)
 				)
 			}
+			
+			DB_InitSeq()
 		}
 	}
 
@@ -4102,17 +4204,23 @@ public native_get_statsnum(plugin_id,params)
 */
 public native_get_stats(plugin_id,params)
 {
+	// ждем начала работы с БД
+	if(!is_ready)
+	{
+		return 0
+	}
+	
 	if(params < 5)
 	{
 		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 5, passed %d",params)
 		
-		return false
+		return 0
 	}
 	else if(params > 5 && params != 7)
 	{
 		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 7, passed %d",params)
 		
-		return false
+		return 0
 	}
 	
 	new index = get_param(1)	// индекс в статистике
@@ -4216,6 +4324,12 @@ public native_get_stats(plugin_id,params)
 */
 public native_get_stats2(plugin_id,params)
 {
+	// ждем начала работы с БД
+	if(!is_ready)
+	{
+		return 0
+	}
+	
 	if(params < 2)
 	{
 		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 2, passed %d",params)
@@ -4329,6 +4443,12 @@ public native_get_stats2(plugin_id,params)
 */
 public native_get_stats_thread(plugin_id,params)
 {
+	// ждем начала работы с БД
+	if(!is_ready)
+	{
+		return false
+	}
+	
 	if(params < 4)
 	{
 		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 4, passed %d",params)
@@ -4364,6 +4484,12 @@ public native_get_stats_thread(plugin_id,params)
 */
 public native_get_stats3(plugin_id,params)
 {
+	// ждем начала работы с БД
+	if(!is_ready)
+	{
+		return 0
+	}
+	
 	if(params < 2)
 	{
 		log_error(AMX_ERR_NATIVE,"Bad arguments num, expected 2, passed %d",params)
@@ -4487,6 +4613,17 @@ public native_get_user_stats3(plugin_id,params)
 	return player_data[id][PLAYER_RANK]
 }
 
+public native_get_user_stats2(plugin_id,params)
+{
+	new id = get_param(1)
+	
+	CHECK_PLAYERRANGE(id)
+	
+	set_array(2,player_data[id][PLAYER_STATS2],sizeof player_data[][PLAYER_STATS2])
+	
+	return true
+}
+
 /*
 *
 * ВСЯКАЯ ХРЕНЬ ДЛЯ САМОСТОЯТЕЛЬНОГО ПРОСЧЕТА СТАТИСТИКИ
@@ -4582,6 +4719,11 @@ reset_user_allstats(index)
 
 public DB_OpenConnection()
 {
+	if(!is_ready)
+	{
+		return false
+	}
+	
 	if(sql_con != Empty_Handle)
 	{
 		return true
@@ -4612,22 +4754,6 @@ public DB_CloseConnection()
 		SQL_FreeHandle(sql_con)
 		sql_con = Empty_Handle
 	}
-}
-
-public native_get_user_stats2(plugin_id,params)
-{
-	new id = get_param(1)
-	
-	if(!(0 < id <= MaxClients))	// неверно задан айди игрока
-	{
-		log_error(AMX_ERR_NATIVE,"Player index out of bounds (%d)",id)
-		
-		return false
-	}
-	
-	set_array(2,player_data[id][PLAYER_STATS2],sizeof player_data[][PLAYER_STATS2])
-	
-	return true
 }
 
 /*********    mysql escape functions     ************/

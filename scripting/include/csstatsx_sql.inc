@@ -40,6 +40,13 @@ native get_stats2_sql(index, stats2[4], authid[] = "", authidlen = 0)
 native xmod_get_maxweapons_sql()
 
 //
+// Called after plugin finished initializing db
+//	from this point you can start use get_stats* natives
+//	this also called on stats reset
+//
+forward csxsql_initialized()
+
+//
 // Called after a client help to kill another client.
 // 	@player		Player client index
 //	@victim		Victim client index

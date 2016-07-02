@@ -1,5 +1,5 @@
 /*
-*	CSXSQL Onlinetime Awards	     v. 0.1
+*	CSXSQL Onlinetime Awards	     v. 0.2
 *	by serfreeman1337	    http://1337.uz/
 */
 
@@ -8,7 +8,7 @@
 #include <csstatsx_sql>
 
 #define PLUGIN "CSXSQL: Onlinetime Awards"
-#define VERSION "0.1"
+#define VERSION "0.2"
 #define AUTHOR "serfreeman1337"
 
 #define TOP 		3				// Скольким игрокам из топа выдавать флаги?
@@ -24,7 +24,7 @@ public plugin_init()
 	
 }
 
-public plugin_cfg()
+public csxsql_initialized()
 {
 	update_stats_cache()
 	get_stats_sql_thread(0,0,TOP,"TopPlayedTime",CSXSQL_RANK_TIME)
