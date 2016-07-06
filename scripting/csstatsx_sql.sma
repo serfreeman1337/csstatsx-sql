@@ -1,5 +1,5 @@
 /*
-*	CSStatsX SQL			  	v. 0.7.3
+*	CSStatsX SQL			  	v. 0.7.4
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
@@ -10,10 +10,10 @@
 #include <hamsandwich>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.3"
+#define VERSION "0.7.4"
 #define AUTHOR "serfreeman1337"	// AKA SerSQL1337
 
-#define LASTUPDATE "02, Jule (07), 2016"
+#define LASTUPDATE "06, July (07), 2016"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -2659,6 +2659,11 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 {
 	stats_count = SQL_NumResults(sqlQue)
 	
+	if(!stats_count)
+	{
+		return false
+	}
+	
 	new stats_cache[stats_cache_struct]
 	
 	switch(get_pcvar_num(cvar[CVAR_RANK]))
@@ -2675,10 +2680,11 @@ DB_ReadGetStats(Handle:sqlQue,name[] = "",name_len = 0,authid[] = "",authid_len 
 	
 	new i
 	
-	for(i = ROW_KILLS ; i <= ROW_LASTJOIN ; i++)
+	for(i = ROW_SKILL ; i <= ROW_LASTJOIN ; i++)
 	{
 		switch(i)
 		{
+			case ROW_SKILL: SQL_ReadResult(sqlQue,i,stats_cache[CACHE_SKILL])
 			case ROW_KILLS..ROW_DMG:
 			{
 				stats_cache[CACHE_STATS][i - ROW_KILLS] = stats[i - ROW_KILLS] = SQL_ReadResult(sqlQue,i)
@@ -3816,6 +3822,10 @@ public native_get_skill(plugin_id,params)
 	
 	// кеширование
 	new index_str[10],stats_cache[stats_cache_struct]
+	
+	if(index < 0)
+		index = 0
+	
 	num_to_str(index,index_str,charsmax(index_str))
 	
 	// есть информация в кеше
