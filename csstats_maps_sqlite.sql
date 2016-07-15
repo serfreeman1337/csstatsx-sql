@@ -29,6 +29,7 @@ CREATE TABLE `csstats_maps` (
 	`wint`	INTEGER NOT NULL DEFAULT 0,
 	`roundct`	INTEGER NOT NULL DEFAULT 0,
 	`winct`	INTEGER NOT NULL DEFAULT 0,
+	`assists`	INTEGER NOT NULL DEFAULT 0,
 	`first_join`	TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	`last_join`	TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00'
 );
@@ -65,6 +66,7 @@ BEGIN
 			`wint`,
 			`roundct`,
 			`winct`,
+			`assists`,
 			`last_join`
 		) VALUES (
 			NEW.`id`,
@@ -96,6 +98,7 @@ BEGIN
 			NEW.`wint` - OLD.`wint`,
 			NEW.`roundct` - OLD.`roundct`,
 			NEW.`winct` - OLD.`winct`,
+			NEW.`assists` - OLD.`assists`,
 			CURRENT_TIMESTAMP
 		);
 END;
@@ -129,6 +132,7 @@ BEGIN
 			`wint` = `wint` + (NEW.`wint` - OLD.`wint`),
 			`roundct` = `roundct` + (NEW.`roundct` - OLD.`roundct`),
 			`winct` = `winct` + (NEW.`winct` - OLD.`winct`),
+			`assists` = `assists` + (NEW.`assists` - OLD.`assists`),
 			`last_join` = CURRENT_TIMESTAMP
 		WHERE `player_id` = NEW.`id` AND `session_id` = NEW.`session_id`;
 END;
