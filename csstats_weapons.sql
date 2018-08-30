@@ -1,0 +1,22 @@
+CREATE TABLE `csstats_weapons` (
+	`id` int(11) NOT NULL AUTO_INCREMENT,
+	`player_id` int(11) NOT NULL,
+	`weapon` varchar(32) NOT NULL,
+	`kills` int(11) NOT NULL DEFAULT '0',
+	`deaths` int(11) NOT NULL DEFAULT '0',
+	`hs` int(11) NOT NULL DEFAULT '0',
+	`tks` int(11) NOT NULL DEFAULT '0',
+	`shots` int(11) NOT NULL DEFAULT '0',
+	`hits` int(11) NOT NULL DEFAULT '0',
+	`dmg` int(11) NOT NULL DEFAULT '0',
+	`h_0` int(11) NOT NULL DEFAULT '0',
+	`h_1` int(11) NOT NULL DEFAULT '0',
+	`h_2` int(11) NOT NULL DEFAULT '0',
+	`h_3` int(11) NOT NULL DEFAULT '0',
+	`h_4` int(11) NOT NULL DEFAULT '0',
+	`h_5` int(11) NOT NULL DEFAULT '0',
+	`h_6` int(11) NOT NULL DEFAULT '0',
+	`h_7` int(11) NOT NULL DEFAULT '0',
+	PRIMARY KEY (`id`),
+	KEY `weapon` (`weapon`(16))
+) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;

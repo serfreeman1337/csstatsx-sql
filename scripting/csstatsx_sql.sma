@@ -1,19 +1,25 @@
 /*
-*	CSStatsX SQL			  	v. 0.7.4
+*	CSStatsX SQL			  	v. 0.7.4+1
 *	by serfreeman1337	     	 http://1337.uz/
 */
 
 #include <amxmodx>
 #include <sqlx>
 
-#include <fakemeta>
-#include <hamsandwich>
+//#define REAPI
+
+#if !defined REAPI
+	#include <fakemeta>
+	#include <hamsandwich>
+#else
+	#include <reapi>
+#endif
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.4"
-#define AUTHOR "serfreeman1337"	// AKA SerSQL1337
+#define VERSION "0.7.4+1"
+#define AUTHOR "serfreeman1337"
 
-#define LASTUPDATE "06, July (07), 2016"
+#define LASTUPDATE "31, August(08), 2018"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -181,7 +187,7 @@ new const task_confin		=	21337
 new const task_flush		=	11337
 
 #define MAX_CWEAPONS		6
-#define MAX_WEAPONS		CSW_P90 + 1 + MAX_CWEAPONS
+#define CSX_MAX_WEAPONS		CSW_P90 + 1 + MAX_CWEAPONS
 #define HIT_END			HIT_RIGHTLEG + 1
 
 // 0.7
@@ -375,7 +381,10 @@ enum _:cvar_set
 	CVAR_AUTOCLEAR_DAY,
 	
 	// 0.7.2
-	CVAR_ASSISTHP
+	CVAR_ASSISTHP,
+	
+	// 0.7.4+1
+	CVAR_PAUSE
 }
 
 
@@ -404,7 +413,7 @@ new statsnum
 // 2ой STATS_END + HIT_END - последнее значение player_wstats, использует для расчета разницы
 // последний индекс - определяет INSERT или UPDATE для запроса
 //
-new player_awstats[MAX_PLAYERS + 1][MAX_WEAPONS][((STATS_END + HIT_END) * 2) + 1]
+new player_awstats[MAX_PLAYERS + 1][CSX_MAX_WEAPONS][((STATS_END + HIT_END) * 2) + 1]
 
 new cvar[cvar_set]
 
@@ -417,13 +426,13 @@ new tbl_name[32]
  #pragma dynamic 32768
 
 // wstats
-new player_wstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END + HIT_END]
+new player_wstats[MAX_PLAYERS + 1][CSX_MAX_WEAPONS][STATS_END + HIT_END]
 
 // wstats2
 new player_wstats2[MAX_PLAYERS + 1][STATS2_END]
 
 // wrstats rstats
-new player_wrstats[MAX_PLAYERS + 1][MAX_WEAPONS][STATS_END + HIT_END]
+new player_wrstats[MAX_PLAYERS + 1][CSX_MAX_WEAPONS][STATS_END + HIT_END]
 
 // vstats
 new player_vstats[MAX_PLAYERS + 1][MAX_PLAYERS + 1][STATS_END + HIT_END + MAX_NAME_LENGTH]
@@ -476,140 +485,249 @@ new bool:is_ready = false
 	ArrayPushArray(weapons_data,weapon_info);\
 	TrieSetCell(log_ids_trie,%2,ArraySize(weapons_data) - 1)
 
-public plugin_precache()
-{
+	
+public plugin_precache() {
 	register_plugin(PLUGIN,VERSION,AUTHOR)
-	register_cvar("csstatsx_sql", VERSION, FCVAR_SERVER | FCVAR_SPONLY | FCVAR_UNLOGGED)
 	
-	/*
-	* хост mysql
-	*/
-	cvar[CVAR_SQL_HOST] = register_cvar("csstats_sql_host","localhost",FCVAR_UNLOGGED|FCVAR_PROTECTED)
-	
-	/*
-	* пользователь mysql
-	*/
-	cvar[CVAR_SQL_USER] = register_cvar("csstats_sql_user","root",FCVAR_UNLOGGED|FCVAR_PROTECTED)
-	
-	/*
-	* пароль mysql
-	*/
-	cvar[CVAR_SQL_PASS] = register_cvar("csstats_sql_pass","",FCVAR_UNLOGGED|FCVAR_PROTECTED)
-	
-	/*
-	* название БД mysql или sqlite
-	*/
-	cvar[CVAR_SQL_DB] = register_cvar("csstats_sql_db","amxx",FCVAR_UNLOGGED|FCVAR_PROTECTED)
-	
-	/*
-	* название таблицы в БД
-	*/
-	cvar[CVAR_SQL_TABLE] = register_cvar("csstats_sql_table","csstats",FCVAR_UNLOGGED|FCVAR_PROTECTED)
-	
-	/*
-	* тип бд
-	*	mysql - база данных MySQL
-	*	sqlite - локальная база данных SQLite
-	*/
-	cvar[CVAR_SQL_TYPE] = register_cvar("csstats_sql_type","mysql")
-	
-	/*
-	* отправка запроса на создание таблицы
-	*	0 - не отправлять запрос
-	*	1 - отправлять запрос при загрузке карты
-	*/
-	cvar[CVAR_SQL_CREATE_DB] = register_cvar("csstats_sql_create_db","1")
-	
-	/*
-	* как вести учет игроков
-	*	-1			- не учитывать
-	*	0			- по нику
-	*	1			- по steamid
-	*	2			- по ip
-	*/
-	cvar[CVAR_RANK] = get_cvar_pointer("csstats_rank")
-	
-	if(!cvar[CVAR_RANK])
-		cvar[CVAR_RANK] = register_cvar("csstats_rank","1")
-		
-	/*
-	* запись статистики ботов
-	*	0			- не записывать
-	*	1			- записывать0
-	*/
-	cvar[CVAR_RANKBOTS] = get_cvar_pointer("csstats_rankbots")
-	
-	if(!cvar[CVAR_RANKBOTS])
-		cvar[CVAR_RANKBOTS] = register_cvar("csstats_rankbots","1")
-	
-	/*
-	* как обновлять статистику игрока в БД
-	*	-2 			- при смерти и дисконнекте
-	*	-1			- в конце раунда и дисконнекте
-	*	0 			- при дисконнекте
-	*	значение больше 0 	- через указанное кол-во секунд и дисконнекте
-	*/
-	cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","-1")
-	
-	/*
-	* включить собственные форварды для client_death, client_damage
-	*	0			- выключить
-	*	1			- включить, небоходимо, если csstats_sql используется в качестве замены модуля
-	*/
-	cvar[CVAR_USEFORWARDS] = register_cvar("csstats_sql_forwards","0")
-	
-	/*
-	* формула расчета ранга
-	*	0			- убйиства - смерти - тк
-	*	1			- убийства
-	*	2			- убийства + хедшоты
-	*	3			- скилл
-	*	4			- время онлайн
-	*/
-	cvar[CVAR_RANKFORMULA] = register_cvar("csstats_sql_rankformula","0")
-	
-	/*
-	* формула расчета скилла
-	*	0			- The ELO Method (http://fastcup.net/rating.html)
-	*/
-	cvar[CVAR_SKILLFORMULA] = register_cvar("csstats_sql_skillformula","0")
-	
-	// 0.7
-	
-	/*
-	* ведение статистики по оружию
-	*/
-	cvar[CVAR_WEAPONSTATS] = register_cvar("csstats_sql_weapons","0")
-	
-	/*
-	* ведение статистики по картам
-	*/
-	cvar[CVAR_MAPSTATS] = register_cvar("csstats_sql_maps","0")
-	
-	/*
-	* автоматическое удаление неактвиных игроков в БД
-	*/
-	cvar[CVAR_AUTOCLEAR] = register_cvar("csstats_sql_autoclear","0")
-	
-	/*
-	* использование кеша для get_stats
-	*	-1 - обновлять в конце раунда или по времени csstats_sql_update
-	*	0 - отключить использование кеша
-	*/
-	cvar[CVAR_CACHETIME] = register_cvar("csstats_sql_cachetime","-1")
+	#if AMXX_VERSION_NUM >= 183
 
-	/*
-	* автоматическая очистка всей игровой статистики в БД в определенный день
-	*/                               
-	cvar[CVAR_AUTOCLEAR_DAY] = register_cvar("csstats_sql_autoclear_day","0") 
+	//
+	// For AMXX 1.8.3 and higher
+	// Configuration file: amxmodx/configs/plugins/plugin-csstatsx_sql.cfg
+	//
 	
-	/*
-	* урон для засчитывания ассиста
-	*/
-	cvar[CVAR_ASSISTHP] = register_cvar("csstats_sql_assisthp","50")
+		create_cvar("csstatsx_sql", VERSION, FCVAR_SERVER|FCVAR_EXTDLL|FCVAR_UNLOGGED|FCVAR_SPONLY, "Plugin version^nDo not edit this cvar")
+		cvar[CVAR_SQL_HOST] = create_cvar("csstats_sql_host", "localhost", FCVAR_PROTECTED, "MySQL host")
+		cvar[CVAR_SQL_USER] = create_cvar("csstats_sql_user", "root", FCVAR_PROTECTED, "MySQL user")
+		cvar[CVAR_SQL_PASS] = create_cvar("csstats_sql_pass", "", FCVAR_PROTECTED, "MySQL user password")
+		cvar[CVAR_SQL_DB] = create_cvar("csstats_sql_db", "amxx", FCVAR_PROTECTED, "DB Name")
+		cvar[CVAR_SQL_TABLE] = create_cvar("csstats_sql_table", "csstats", FCVAR_PROTECTED, "Table name")
+		cvar[CVAR_SQL_TYPE] = create_cvar("csstats_sql_type", "mysql", FCVAR_NONE, "Database type^n\
+												mysql - MySQL^n\
+												sqlite - SQLite")
+		cvar[CVAR_SQL_CREATE_DB] = create_cvar("csstats_sql_create_db", "1", FCVAR_NONE, "Auto create tables^n\
+												0 - don't send create table query^n\
+												1 - send create table query on map load")
+		cvar[CVAR_UPDATESTYLE] = create_cvar("csstats_sql_update", "-1", FCVAR_NONE, "How to update player stats in db^n\
+												-2 - on death and disconnect^n\
+												-1 - on round end and disconnect^n\
+												0 - on disconnect^n\
+												higher than 0 - every n seconds and disconnect")
+		cvar[CVAR_USEFORWARDS] = create_cvar("csstats_sql_forwards", "0", FCVAR_NONE, "Enable own forwards for client_death, client_damage^n\
+												0 - disable^n\
+												1 - enable. required if you want replace csx module")
+		cvar[CVAR_RANKFORMULA] = create_cvar("csstats_sql_rankformula", "0", FCVAR_NONE, "How to rank player^n\
+												0 - kills- deaths - tk^n\
+												1 - kills^n\
+												2 - kills + hs^n\
+												3 - skill^n\
+												4 - online time")
+		cvar[CVAR_SKILLFORMULA] = create_cvar("csstats_sql_skillformula", "0", FCVAR_NONE, "Skill formula^n\
+												0 - The ELO Method")
+		cvar[CVAR_WEAPONSTATS] = create_cvar("csstats_sql_weapons", "0", FCVAR_NONE, "Enable weapon stats (/rankstats)^n\
+												0 - disable^n\
+												1 - enable^n\
+												This will create new table csstats_weapons in your database^n\
+												NOTE: table will be created only if you set cvar csstats_sql_create_db to 1")
+		cvar[CVAR_MAPSTATS] = create_cvar("csstats_sql_maps", "0", FCVAR_NONE, "Enable player session stats (/sestats)^n\
+												0 - disable^n\
+												1 - enable^n\
+												NOTE: you need to import csstats_maps.sql^n\
+												Check install instructions")
+		cvar[CVAR_AUTOCLEAR] = create_cvar("csstats_sql_autoclear", "0", FCVAR_NONE, "Number of inactive days after which player's stats will be retested. (prune function)")
+		cvar[CVAR_CACHETIME] = create_cvar("csstats_sql_cachetime", "-1", FCVAR_NONE, "Cache option^n\
+												-1 - enabled^n\
+												0 - disabled^n\
+												NOTE: Doesn't work with csstats_sql_update -2 or 0")
+		cvar[CVAR_AUTOCLEAR_DAY] = create_cvar("csstats_sql_autoclear_day", "0", FCVAR_NONE, "Full stats reset in specified day of month") 
+		cvar[CVAR_ASSISTHP] = create_cvar("csstats_sql_assisthp", "50", FCVAR_NONE, "Minimum damage to count assist^n0 - disable this feature")
+		// csx
+		cvar[CVAR_RANK] = get_cvar_pointer("csstats_rank")
+		
+		if(!cvar[CVAR_RANK])
+			cvar[CVAR_RANK] = create_cvar("csstats_rank", "1", FCVAR_NONE, "Rank mode^n\
+											0 - by nick^n\
+											1 - by authid^n\
+											2 - by ip")
+		cvar[CVAR_RANKBOTS] = get_cvar_pointer("csstats_rankbots")
+		
+		if(!cvar[CVAR_RANKBOTS])
+			cvar[CVAR_RANKBOTS] = create_cvar("csstats_rankbots", "1", FCVAR_NONE, "Rank bots^n\
+												0 - do not rank bots^n\
+												1 - rank bots")
+		cvar[CVAR_PAUSE] = get_cvar_pointer("csstats_pause")
+		
+		if(!cvar[CVAR_PAUSE]) {
+			cvar[CVAR_PAUSE] = create_cvar("csstats_pause", "0", FCVAR_NONE, "Pause stats^n\
+												0 - do not pause stats^n\
+												1 - pause stats")
+		}
+		// i am retarded ?
+		hook_cvar_change(cvar[CVAR_PAUSE], "CvarHook_PauseStats")
+
+
+		// csx
+
+		AutoExecConfig()
+	#else
 	
-	#if AMXX_VERSION_NUM < 183
+	//
+	// For AMX Mod X 1.8.2
+	// Write cvars in amxx.cfg !
+	//
+	
+		register_cvar("csstatsx_sql", VERSION, FCVAR_SERVER | FCVAR_SPONLY | FCVAR_UNLOGGED)
+		/*
+		* хост mysql
+		*/
+		cvar[CVAR_SQL_HOST] = register_cvar("csstats_sql_host","localhost",FCVAR_UNLOGGED|FCVAR_PROTECTED)
+		
+		/*
+		* пользователь mysql
+		*/
+		cvar[CVAR_SQL_USER] = register_cvar("csstats_sql_user","root",FCVAR_UNLOGGED|FCVAR_PROTECTED)
+		
+		/*
+		* пароль mysql
+		*/
+		cvar[CVAR_SQL_PASS] = register_cvar("csstats_sql_pass","",FCVAR_UNLOGGED|FCVAR_PROTECTED)
+		
+		/*
+		* название БД mysql или sqlite
+		*/
+		cvar[CVAR_SQL_DB] = register_cvar("csstats_sql_db","amxx",FCVAR_UNLOGGED|FCVAR_PROTECTED)
+		
+		/*
+		* название таблицы в БД
+		*/
+		cvar[CVAR_SQL_TABLE] = register_cvar("csstats_sql_table","csstats",FCVAR_UNLOGGED|FCVAR_PROTECTED)
+		
+		/*
+		* тип бд
+		*	mysql - база данных MySQL
+		*	sqlite - локальная база данных SQLite
+		*/
+		cvar[CVAR_SQL_TYPE] = register_cvar("csstats_sql_type","mysql")
+		
+		/*
+		* отправка запроса на создание таблицы
+		*	0 - не отправлять запрос
+		*	1 - отправлять запрос при загрузке карты
+		*/
+		cvar[CVAR_SQL_CREATE_DB] = register_cvar("csstats_sql_create_db","1")
+		
+		/*
+		* как вести учет игроков
+		*	-1			- не учитывать
+		*	0			- по нику
+		*	1			- по steamid
+		*	2			- по ip
+		*/
+		cvar[CVAR_RANK] = get_cvar_pointer("csstats_rank")
+		
+		if(!cvar[CVAR_RANK])
+			cvar[CVAR_RANK] = register_cvar("csstats_rank","1")
+			
+		/*
+		* запись статистики ботов
+		*	0			- не записывать
+		*	1			- записывать0
+		*/
+		cvar[CVAR_RANKBOTS] = get_cvar_pointer("csstats_rankbots")
+		
+		if(!cvar[CVAR_RANKBOTS])
+			cvar[CVAR_RANKBOTS] = register_cvar("csstats_rankbots","1")
+		
+		/*
+		* как обновлять статистику игрока в БД
+		*	-2 			- при смерти и дисконнекте
+		*	-1			- в конце раунда и дисконнекте
+		*	0 			- при дисконнекте
+		*	значение больше 0 	- через указанное кол-во секунд и дисконнекте
+		*/
+		cvar[CVAR_UPDATESTYLE] = register_cvar("csstats_sql_update","-1")
+		
+		/*
+		* включить собственные форварды для client_death, client_damage
+		*	0			- выключить
+		*	1			- включить, небоходимо, если csstats_sql используется в качестве замены модуля
+		*/
+		cvar[CVAR_USEFORWARDS] = register_cvar("csstats_sql_forwards","0")
+		
+		/*
+		* формула расчета ранга
+		*	0			- убйиства - смерти - тк
+		*	1			- убийства
+		*	2			- убийства + хедшоты
+		*	3			- скилл
+		*	4			- время онлайн
+		*/
+		cvar[CVAR_RANKFORMULA] = register_cvar("csstats_sql_rankformula","0")
+		
+		/*
+		* формула расчета скилла
+		*	0			- The ELO Method (http://fastcup.net/rating.html)
+		*/
+		cvar[CVAR_SKILLFORMULA] = register_cvar("csstats_sql_skillformula","0")
+		
+		// 0.7
+		
+		/*
+		* ведение статистики по оружию
+		*/
+		cvar[CVAR_WEAPONSTATS] = register_cvar("csstats_sql_weapons","0")
+		
+		/*
+		* ведение статистики по картам
+		*/
+		cvar[CVAR_MAPSTATS] = register_cvar("csstats_sql_maps","0")
+		
+		/*
+		* автоматическое удаление неактвиных игроков в БД
+		*/
+		cvar[CVAR_AUTOCLEAR] = register_cvar("csstats_sql_autoclear","0")
+		
+		/*
+		* использование кеша для get_stats
+		*	-1 - обновлять в конце раунда или по времени csstats_sql_update
+		*	0 - отключить использование кеша
+		*/
+		cvar[CVAR_CACHETIME] = register_cvar("csstats_sql_cachetime","-1")
+	
+		/*
+		* автоматическая очистка всей игровой статистики в БД в определенный день
+		*/                               
+		cvar[CVAR_AUTOCLEAR_DAY] = register_cvar("csstats_sql_autoclear_day","0") 
+		
+		/*
+		* урон для засчитывания ассиста
+		*/
+		cvar[CVAR_ASSISTHP] = register_cvar("csstats_sql_assisthp","50")
+		
+		cvar[CVAR_PAUSE] = get_cvar_pointer("csstats_pause")
+		
+		if(!cvar[CVAR_PAUSE])
+			cvar[CVAR_PAUSE] = register_cvar("csstats_pause", "0")
+		
 		MaxClients = get_maxplayers()
+	#endif
+}
+
+
+
+#if AMXX_VERSION_NUM >= 183
+// sure i am
+new bool:pause_stats
+public CvarHook_PauseStats(pcvar, const old_value[], const new_value[]) {
+	pause_stats = (str_to_num(new_value) > 0)
+}
+#endif
+
+is_stats_paused() {
+	#if AMXX_VERSION_NUM >= 183
+	return pause_stats
+	#else
+	return get_pcvar_num(cvar[CVAR_PAUSE])
 	#endif
 }
 
@@ -665,13 +783,17 @@ public plugin_init()
 	REG_INFO(true,"knife","knife")
 	REG_INFO(false,"p90","p90")
 	
+	#if !defined REAPI
 	RegisterHam(Ham_Spawn,"player","HamHook_PlayerSpawn",true)
+	#else
+	RegisterHookChain(RG_CBasePlayer_Spawn, "RGHook_PlayerSpawn", true)
+	#endif
 }
 
 #if AMXX_VERSION_NUM < 183
 	public plugin_cfg()
 #else
-	public OnAutoConfigsBuffered()
+	public OnConfigsExecuted()
 #endif
 {
 	#if AMXX_VERSION_NUM < 183
@@ -693,7 +815,7 @@ public plugin_init()
 	{
 		new error_msg[128]
 		formatex(error_msg,charsmax(error_msg),"failed to use ^"%s^" for db driver",
-			error_msg)
+			type)
 			
 		set_fail_state(error_msg)
 		
@@ -1072,7 +1194,13 @@ public plugin_init()
 		FW_BDefused = CreateMultiForward("bomb_defused",ET_IGNORE,FP_CELL)
 		FW_GThrow = CreateMultiForward("grenade_throw",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL)
 		
+		#if !defined REAPI
 		register_forward(FM_SetModel,"FMHook_SetModel",true)
+		#else
+		RegisterHookChain(RG_ThrowFlashbang, "RGHook_ThrowFlashbang", true)
+		RegisterHookChain(RG_ThrowHeGrenade, "RGHook_ThrowHeGrenade", true)
+		RegisterHookChain(RG_ThrowSmokeGrenade, "RGHook_ThrowSmokeGrenade", true)
+		#endif
 	}
 	
 	// 0.7.2
@@ -1344,10 +1472,16 @@ DB_ClearTables(by_days)
 
 public plugin_end()
 {
+	if(!is_ready) {
+		return
+	}
+	
 	// выполняем накопившиеся запросы при смене карты или выключении серваре
 	DB_FlushQuery()
 	
-	SQL_FreeHandle(sql)
+	if(sql_con != Empty_Handle) {
+		SQL_FreeHandle(sql)
+	}
 	
 	if(sql_con != Empty_Handle)
 	{
@@ -1379,7 +1513,7 @@ public client_putinserver(id)
 	
 	arrayset(player_data[id],0,player_data_struct)
 	
-	for(new wpn ; wpn < MAX_WEAPONS ; wpn ++)
+	for(new wpn ; wpn < CSX_MAX_WEAPONS ; wpn ++)
 	{
 		arrayset(player_awstats[id][wpn],0,sizeof player_awstats[][])
 	}
@@ -1401,7 +1535,11 @@ public client_disconnected(id)
 	DB_SavePlayerData(id)
 }
 
+#if !defined REAPI
 public HamHook_PlayerSpawn(id)
+#else
+public RGHook_PlayerSpawn(id)
+#endif
 {
 	reset_user_wstats(id)
 }
@@ -1436,34 +1574,28 @@ public EventHook_CurWeapon(player)
 public EventHook_Damage(player)
 {
 	static damage_take;damage_take = read_data(2)
-	static dmg_inflictor;dmg_inflictor = pev(player,pev_dmg_inflictor)
 	
-	if(pev_valid(dmg_inflictor) != 2)
-	{
-		return PLUGIN_CONTINUE
-	}
+	// thanks voed
+	static weapon_id,last_hit,attacker,bool:alive
+	attacker = get_user_attacker(player,weapon_id,last_hit)
+	alive = (is_user_alive(player) ? true : false)
 	
-	if(!(0 < dmg_inflictor <= MaxClients))
-	{
-		// урон с гранаты на данным момент не учитывается
+	if(!is_user_connected(attacker)) {
+		
+		if(!alive) {
+			Stats_SaveKill(0,player,0,0)
+		}
 		
 		return PLUGIN_CONTINUE
 	}
 	
-	static weapon_id,last_hit,attacker
-	attacker = get_user_attacker(player,weapon_id,last_hit)
-	
 	if(0 <= last_hit < HIT_END)
 	{
-		Stats_SaveHit(dmg_inflictor,player,damage_take,weapon_id,last_hit)
+		Stats_SaveHit(attacker,player,damage_take,weapon_id,last_hit)
 	}
 	
-	if(!is_user_alive(player))
-	{
-		if(is_user_connected(attacker))
-		{
-			Stats_SaveKill(attacker,player,weapon_id,last_hit)
-		}
+	if(!alive) {
+		Stats_SaveKill(attacker,player,weapon_id,last_hit)
 	}
 	
 	return PLUGIN_CONTINUE
@@ -1600,6 +1732,7 @@ Event_CTWin()
 //
 // Форвард grenade_throw
 //
+#if !defined REAPI
 public FMHook_SetModel(ent,model[])
 {
 	new owner = pev(ent,pev_owner)
@@ -1639,15 +1772,29 @@ public FMHook_SetModel(ent,model[])
 	
 	return FMRES_IGNORED
 }
-
+#else
+public RGHook_ThrowFlashbang(const index) {
+	ExecuteForward(FW_GThrow, dummy_ret, index, GetHookChainReturn(ATYPE_INTEGER), CSW_FLASHBANG)
+}
+public RGHook_ThrowHeGrenade(const index) {
+	ExecuteForward(FW_GThrow, dummy_ret, index, GetHookChainReturn(ATYPE_INTEGER), CSW_HEGRENADE)
+}
+public RGHook_ThrowSmokeGrenade(const index) {
+	ExecuteForward(FW_GThrow, dummy_ret, index, GetHookChainReturn(ATYPE_INTEGER), CSW_SMOKEGRENADE)
+}
+#endif
 //
 // Учет ассистов
 //
 Stats_SaveAssist(player,victim,assisted)
 {
-	player_data[player][PLAYER_STATS3][STATS3_ASSIST] ++
-	
 	ExecuteForward(FW_Assist,dummy_ret,player,victim,assisted)
+	
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	player_data[player][PLAYER_STATS3][STATS3_ASSIST] ++
 	
 	return true
 }
@@ -1657,6 +1804,10 @@ Stats_SaveAssist(player,victim,assisted)
 //
 Stats_SaveShot(player,wpn_id)
 {
+	if(is_stats_paused()) {
+		return false
+	}
+	
 	player_wstats[player][0][STATS_SHOTS] ++
 	player_wstats[player][wpn_id][STATS_SHOTS] ++
 	
@@ -1671,6 +1822,17 @@ Stats_SaveShot(player,wpn_id)
 //
 Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 {
+	if(FW_Damage)
+		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,damage,wpn_id,hit_place,is_tk(attacker,victim))
+		
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	if(attacker == victim) {
+		return false
+	}
+	
 	player_wstats[attacker][0][STATS_HITS] ++
 	player_wstats[attacker][0][STATS_DMG] += damage
 	player_wstats[attacker][0][hit_place + STATS_END] ++
@@ -1712,9 +1874,6 @@ Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 		MAX_NAME_LENGTH - 1,
 		weapon_info[1]
 	)
-	
-	if(FW_Damage)
-		ExecuteForward(FW_Damage,dummy_ret,attacker,victim,damage,wpn_id,hit_place,is_tk(attacker,victim))
 		
 	return true
 }
@@ -1724,8 +1883,18 @@ Stats_SaveHit(attacker,victim,damage,wpn_id,hit_place)
 //
 Stats_SaveKill(killer,victim,wpn_id,hit_place)
 {
-	if(killer == victim) // не учитываем суицид
+	if(FW_Death)
+		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
+		
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	if(killer == victim || !killer) // не учитываем суицид
 	{
+		player_wstats[victim][0][STATS_DEATHS] ++
+		player_wrstats[victim][0][STATS_DEATHS] ++
+		
 		return false
 	}
 	
@@ -1795,14 +1964,11 @@ Stats_SaveKill(killer,victim,wpn_id,hit_place)
 		player_wrstats[victim][victim_wpn_id][STATS_DEATHS] ++
 	}
 	
-	if(FW_Death)
-		ExecuteForward(FW_Death,dummy_ret,killer,victim,wpn_id,hit_place,is_tk(killer,victim))
-	
 	if(player_data[killer][PLAYER_LOADSTATE] == LOAD_OK && player_data[victim][PLAYER_LOADSTATE] == LOAD_OK) // скилл расчитывается только при наличии статистики из БД
 	{
 		switch(get_pcvar_num(cvar[CVAR_SKILLFORMULA])) // расчет скилла
 		{
-			case 0: // The ELO Method (http://fastcup.net/rating.html)
+			case -1: // Pre 0.7.4+1 ELO
 			{
 				new Float:delta = 1.0 / (1.0 + floatpower(10.0,(player_data[killer][PLAYER_SKILL] - player_data[victim][PLAYER_SKILL]) / 100.0))
 				new Float:koeff = 0.0
@@ -1818,6 +1984,16 @@ Stats_SaveKill(killer,victim,wpn_id,hit_place)
 				
 				player_data[killer][PLAYER_SKILL] += (koeff * delta)
 				player_data[victim][PLAYER_SKILL] -= (koeff * delta)
+			}
+			case 0: // The ELO Method (http://fastcup.net/rating.html)
+			{
+				// thanks In-line
+				new Float:delta = 1.0 / (1.0 + floatpower(10.0,(player_data[killer][PLAYER_SKILL] - player_data[victim][PLAYER_SKILL]) / 100.0))
+				new Float:killer_koeff = (player_data[killer][PLAYER_STATS][STATS_KILLS] < 100) ? 2.0 : 1.5
+				new Float:victim_koeff = (player_data[victim][PLAYER_STATS][STATS_KILLS] < 100) ? 2.0 : 1.5
+				
+				player_data[killer][PLAYER_SKILL] += (killer_koeff * delta)
+				player_data[victim][PLAYER_SKILL] -= (victim_koeff * delta)
 			}
 		}
 	}
@@ -1839,40 +2015,56 @@ Stats_SaveKill(killer,victim,wpn_id,hit_place)
 //
 Stats_SaveBDefusing(id)
 {
-	player_wstats2[id][STATS2_DEFAT] ++
-	
 	if(FW_BDefusing)
 		ExecuteForward(FW_BDefusing,dummy_ret,id)
+		
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	player_wstats2[id][STATS2_DEFAT] ++
 		
 	return true
 }
 
 Stats_SaveBDefused(id)
 {
-	player_wstats2[id][STATS2_DEFOK] ++
-	
 	if(FW_BDefused)
 		ExecuteForward(FW_BDefused,dummy_ret,id)
+		
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	player_wstats2[id][STATS2_DEFOK] ++
 		
 	return true
 }
 
 Stats_SaveBPlanted(id)
 {
-	player_wstats2[id][STATS2_PLAAT] ++
-	
 	if(FW_BPlanted)
 		ExecuteForward(FW_BPlanted,dummy_ret,id)
+		
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	player_wstats2[id][STATS2_PLAAT] ++
 		
 	return true
 }
 
 Stats_SaveBExplode(id)
 {
-	player_wstats2[id][STATS2_PLAOK] ++
-	
 	if(FW_BExplode)
 		ExecuteForward(FW_BExplode,dummy_ret,id,g_defuser)
+		
+	if(is_stats_paused()) {
+		return false
+	}
+	
+	player_wstats2[id][STATS2_PLAOK] ++
 		
 	return true
 }
@@ -2375,7 +2567,7 @@ public DB_SavePlayerWstats(id)
 	const load_index = sizeof player_awstats[][] - 1
 	
 	// по всем оружиям
-	for(wpn = 0; wpn < MAX_WEAPONS ; wpn++)
+	for(wpn = 0; wpn < CSX_MAX_WEAPONS ; wpn++)
 	{
 		Info_Weapon_GetLog(wpn,log,charsmax(log))
 		
@@ -3160,7 +3352,7 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 			}
 			
 			// помечаем статистику по другим оружиям как новую
-			for(new wpn ; wpn < MAX_WEAPONS ; wpn++)
+			for(new wpn ; wpn < CSX_MAX_WEAPONS ; wpn++)
 			{
 				if(_:player_awstats[id][wpn][load_index] != _:LOAD_OK)
 				{
@@ -3846,7 +4038,7 @@ public native_get_skill(plugin_id,params)
 */
 public native_custom_weapon_add(plugin_id,params)
 {
-	if(ArraySize(weapons_data) >= MAX_WEAPONS)
+	if(ArraySize(weapons_data) >= CSX_MAX_WEAPONS)
 	{
 		return 0
 	}
@@ -4035,7 +4227,7 @@ public native_get_user_wrstats(plugin_id,params)
 	
 	CHECK_WEAPON(wpn_id)
 	
-	if(wpn_id != 0 && !(0 < wpn_id < MAX_WEAPONS))
+	if(wpn_id != 0 && !(0 < wpn_id < CSX_MAX_WEAPONS))
 	{
 		log_error(AMX_ERR_NATIVE,"Weapon index out of bounds (%d)",id)
 		
@@ -4701,7 +4893,7 @@ get_user_stats2(index, stats[4])
 
 reset_user_wstats(index)
 {
-	for(new i ; i < MAX_WEAPONS ; i++)
+	for(new i ; i < CSX_MAX_WEAPONS ; i++)
 	{
 		arrayset(player_wrstats[index][i],0,sizeof player_wrstats[][])
 	}
@@ -4717,7 +4909,7 @@ reset_user_wstats(index)
 
 reset_user_allstats(index)
 {
-	for(new i ; i < MAX_WEAPONS ; i++)
+	for(new i ; i < CSX_MAX_WEAPONS ; i++)
 	{
 		arrayset(player_wstats[index][i],0,sizeof player_wstats[][])
 	}
