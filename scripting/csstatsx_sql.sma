@@ -4934,10 +4934,6 @@ public DB_OpenConnection()
 	new errNum,err[256]
 	sql_con = SQL_Connect(sql,errNum,err,charsmax(err))
 	
-	#if AMXX_VERSION_NUM >= 183
-	SQL_SetCharset(sql_con,"utf8")
-	#endif
-	
 	if(errNum)
 	{
 		log_amx("SQL query failed")
@@ -4945,6 +4941,10 @@ public DB_OpenConnection()
 			
 		return false
 	}
+	
+	#if AMXX_VERSION_NUM >= 183
+	SQL_SetCharset(sql_con,"utf8")
+	#endif
 	
 	return true
 }
