@@ -1,6 +1,6 @@
 /*
-*	CSStatsX SQL			  	v. 0.7.4+1
-*	by serfreeman1337	     	 http://1337.uz/
+*	CSStatsX SQL						v. 0.7.4+1.1
+*	by serfreeman1337		https://github.com/serfreeman1337
 */
 
 #include <amxmodx>
@@ -9,17 +9,18 @@
 //#define REAPI
 
 #if !defined REAPI
-	#include <fakemeta>
 	#include <hamsandwich>
 #else
 	#include <reapi>
 #endif
 
+#include <fakemeta>
+
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.4+1"
+#define VERSION "0.7.4+1.1"
 #define AUTHOR "serfreeman1337"
 
-#define LASTUPDATE "31, August(08), 2018"
+#define LASTUPDATE "13, May(05), 2019"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -477,6 +478,17 @@ new bool:weapon_stats_enabled,bool:map_stats_enabled
 new init_seq = -1
 new bool:is_ready = false
 
+// 0.7.4+1.1
+
+new evts_guns_bitsum
+
+// am i doing it right ?
+new const evt_for_wpn[29] = {
+	0, CSW_AWP, CSW_G3SG1, CSW_AK47, CSW_SCOUT, CSW_M249, CSW_M4A1, CSW_SG552, CSW_AUG, CSW_SG550, 
+	CSW_M3, CSW_XM1014, CSW_USP, CSW_MAC10, CSW_UMP45, CSW_FIVESEVEN, CSW_P90, CSW_DEAGLE, CSW_P228,
+	0, CSW_GLOCK18, CSW_MP5NAVY, CSW_TMP, CSW_ELITE, CSW_ELITE, 0, 0, CSW_GALIL, CSW_FAMAS
+}
+
 // макрос для помощи реагистрации инфы по оружию
 #define REG_INFO(%0,%1,%2)\
 	weapon_info[0] = %0;\
@@ -714,7 +726,6 @@ public plugin_precache() {
 }
 
 
-
 #if AMXX_VERSION_NUM >= 183
 // sure i am
 new bool:pause_stats
@@ -736,7 +747,6 @@ public plugin_init()
 	register_logevent("LogEventHooK_RoundEnd", 2, "1=Round_End") 
 	register_logevent("LogEventHooK_RoundStart", 2, "1=Round_Start") 
 	
-	register_event("CurWeapon","EventHook_CurWeapon","b","1=1")
 	register_event("Damage","EventHook_Damage","b","2!0")
 	register_event("BarTime","EventHook_BarTime","be")
 	register_event("SendAudio","EventHook_SendAudio","a")
@@ -788,6 +798,21 @@ public plugin_init()
 	#else
 	RegisterHookChain(RG_CBasePlayer_Spawn, "RGHook_PlayerSpawn", true)
 	#endif
+	
+	// credits to ConnorMcLeod (https://forums.alliedmods.net/showpost.php?p=1725505&postcount=49)
+	new const evts_guns[][] = {
+		"events/awp.sc", "events/g3sg1.sc", "events/ak47.sc", "events/scout.sc", "events/m249.sc",
+		"events/m4a1.sc", "events/sg552.sc", "events/aug.sc", "events/sg550.sc", "events/m3.sc",
+		"events/xm1014.sc", "events/usp.sc", "events/mac10.sc", "events/ump45.sc", "events/fiveseven.sc",
+		"events/p90.sc", "events/deagle.sc", "events/p228.sc", "events/glock18.sc", "events/mp5n.sc",
+		"events/tmp.sc", "events/elite_left.sc", "events/elite_right.sc", "events/galil.sc", "events/famas.sc"
+	}
+	
+	for(new i ; i < sizeof(evts_guns) ; i++) {
+		evts_guns_bitsum |= (1 << engfunc(EngFunc_PrecacheEvent, 1, evts_guns[i]))
+	}
+	
+	register_forward(FM_PlaybackEvent, "FMHook_OnEventPlayback")
 }
 
 #if AMXX_VERSION_NUM < 183
@@ -1545,27 +1570,15 @@ public RGHook_PlayerSpawn(id)
 }
 
 //
-// Регистрация выстрелов
+// Shots registration
 //
-public EventHook_CurWeapon(player)
-{
-	#define LASTWEAPON 	0	// id посл. оружия
-	#define LASTCLIP	1	// кол-во потронов посл. оружия
+public FMHook_OnEventPlayback(flags, invoker, eventid) {
+	if(!(evts_guns_bitsum & (1 << eventid)) || !(1 <= invoker <= MaxClients))
+		return FMRES_IGNORED
 	
-	static event_tmp[MAX_PLAYERS + 1][LASTCLIP + 1]	// помним послед
-	static weapon_id; weapon_id = read_data(2)
-	static clip_ammo; clip_ammo = read_data(3)
-	
-	if(event_tmp[player][LASTWEAPON] != weapon_id) // оружие было изменено, запоминаем новое кол-во патронов
-	{
-		event_tmp[player][LASTWEAPON] = weapon_id
-		event_tmp[player][LASTCLIP] = clip_ammo
-	}
-	else if(event_tmp[player][LASTCLIP] > clip_ammo) // кол-во патронов в магазине уменьшилось, регистрируем выстрел
-	{
-		Stats_SaveShot(player,weapon_id)
-		event_tmp[player][LASTCLIP] = clip_ammo
-	}
+	Stats_SaveShot(invoker, evt_for_wpn[eventid])
+		
+	return FMRES_HANDLED
 }
 
 //
