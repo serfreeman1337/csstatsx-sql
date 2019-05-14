@@ -1,5 +1,5 @@
 /*
-*	CSStatsX SQL						v. 0.7.4+1.2
+*	CSStatsX SQL						v. 0.7.4+2
 *	by serfreeman1337		https://github.com/serfreeman1337
 */
 
@@ -17,7 +17,7 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.4+1.2"
+#define VERSION "0.7.4+2"
 #define AUTHOR "serfreeman1337"
 
 #define LASTUPDATE "14, May(05), 2019"
@@ -478,7 +478,7 @@ new bool:weapon_stats_enabled,bool:map_stats_enabled
 new init_seq = -1
 new bool:is_ready = false
 
-// 0.7.4+1.1
+// 0.7.4+2
 
 new evts_guns_bitsum
 
