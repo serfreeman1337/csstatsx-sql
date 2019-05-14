@@ -1,5 +1,5 @@
 /*
-*	CSStatsX SQL						v. 0.7.4+1.1
+*	CSStatsX SQL						v. 0.7.4+1.2
 *	by serfreeman1337		https://github.com/serfreeman1337
 */
 
@@ -17,10 +17,10 @@
 #include <fakemeta>
 
 #define PLUGIN "CSStatsX SQL"
-#define VERSION "0.7.4+1.1"
+#define VERSION "0.7.4+1.2"
 #define AUTHOR "serfreeman1337"
 
-#define LASTUPDATE "13, May(05), 2019"
+#define LASTUPDATE "14, May(05), 2019"
 
 #if AMXX_VERSION_NUM < 183
 	#define MAX_PLAYERS 32
@@ -2356,7 +2356,6 @@ DB_SavePlayerData(id,bool:reload = false)
 			for(i = STATS3_CONNECT ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
 			{
 				diffstats3[i] = player_data[id][PLAYER_STATS3][i] - player_data[id][PLAYER_STATS3LAST][i]
-				player_data[id][PLAYER_STATS3LAST][i] = player_data[id][PLAYER_STATS3][i]
 				
 				if(diffstats3[i])
 				{
@@ -2384,11 +2383,10 @@ DB_SavePlayerData(id,bool:reload = false)
 			}
 			
 			// 
-			player_data[id][PLAYER_ONLINE] += get_user_time(id) - player_data[id][PLAYER_ONLINEDIFF]
+			player_data[id][PLAYER_ONLINE] += (get_user_time(id) - player_data[id][PLAYER_ONLINEDIFF])
 			player_data[id][PLAYER_ONLINEDIFF] = get_user_time(id)
 			
 			new diffonline = player_data[id][PLAYER_ONLINE]- player_data[id][PLAYER_ONLINELAST]
-			player_data[id][PLAYER_ONLINELAST] = player_data[id][PLAYER_ONLINE]
 			
 			if(diffonline)
 			{
@@ -2453,6 +2451,13 @@ DB_SavePlayerData(id,bool:reload = false)
 				{
 					player_data[id][PLAYER_STATS2][i] += diffstats2[i]
 				}
+				
+				for(i = STATS3_CONNECT ; i < sizeof player_data[][PLAYER_STATS3] ; i++)
+				{
+					player_data[id][PLAYER_STATS3LAST][i] = player_data[id][PLAYER_STATS3][i]
+				}
+				
+				player_data[id][PLAYER_ONLINELAST] = player_data[id][PLAYER_ONLINE]
 			}
 		}
 		case LOAD_NEW: // запрос на добавление новой записи
