@@ -3247,6 +3247,9 @@ public SQL_Handler(failstate,Handle:sqlQue,err[],errNum,data[],dataSize){
 				{
 					DB_LoadPlayerWstats(id)
 				}
+				
+				// плюсуем стату подключений
+				player_data[id][PLAYER_STATS3][STATS3_CONNECT] ++
 			}
 			
 			// обновляем позици игроков
