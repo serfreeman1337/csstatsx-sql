@@ -31,7 +31,7 @@ CREATE TABLE `csstats_maps` (
 	`winct` INT NOT NULL DEFAULT '0',
 	`assists` INT NOT NULL DEFAULT '0',
 	`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+	`last_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	PRIMARY KEY (id)
 ) DEFAULT CHARSET=utf8 AUTO_INCREMENT=1;
 
