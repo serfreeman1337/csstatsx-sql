@@ -948,7 +948,7 @@ public plugin_init()
 			)
 			
 			que_len += formatex(query[que_len],charsmax(query) - que_len,"`%s` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
-				`%s` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',\
+				`%s` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\
 				`%s` int(11) DEFAULT NULL,\
 				`%s` varchar(32) DEFAULT NULL,\
 					PRIMARY KEY (%s),\

@@ -31,7 +31,7 @@ CREATE TABLE `csstats` (
 	`winct` INT NOT NULL DEFAULT '0',
 	`assists` INT NOT NULL DEFAULT '0',
 	`first_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`last_join` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+	`last_join` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	`session_id` int(11) DEFAULT NULL,
 	`session_map` varchar(32) DEFAULT NULL,
 	PRIMARY KEY (id),
